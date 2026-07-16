@@ -931,16 +931,16 @@ export function DashboardPage() {
                   </tr>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="border-l border-border px-3 py-2.5 text-right font-medium text-muted-foreground">
-                      {t('dailyLimit')}
+                      {t('periodLimit')}
                     </th>
                     <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
-                      {t('dailyFact')}
+                      {t('periodFact')}
                     </th>
                     <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
-                      {t('deviation')}
+                      {t('periodDeviation')}
                     </th>
                     <th className="border-r border-border px-3 py-2.5 text-right font-medium text-muted-foreground">
-                      {t('percent')}
+                      {t('periodPercent')}
                     </th>
                     <th className="border-l border-border px-3 py-2.5 text-right font-medium text-muted-foreground">
                       {t('mtdLimit')}
