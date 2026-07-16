@@ -156,6 +156,7 @@ function FormActions({
   onCancel: () => void;
   submitLabel: string;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex gap-3 pt-2">
       <button type="button" onClick={onCancel} className={`${btnGhost} flex-1`}>
