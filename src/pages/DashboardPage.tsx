@@ -104,6 +104,8 @@ export function DashboardPage() {
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
   const [limits, setLimits] = useState<MonthlyLimit[]>([]);
   const [entries, setEntries] = useState<DailyEntry[]>([]);
+  const [monthlyEntries, setMonthlyEntries] = useState<DailyEntry[]>([]);
+  const [monthlyLimits, setMonthlyLimits] = useState<MonthlyLimit[]>([]);
   const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
@@ -162,6 +164,40 @@ export function DashboardPage() {
         page += 1;
       }
       setEntries(all);
+
+      // Always load current-month data for the breakdown table (independent of date filter)
+      const cmY = new Date().getFullYear();
+      const cmM = new Date().getMonth();
+      const cmFrom = dateStr(cmY, cmM, 1);
+      const cmTo = dateStr(cmY, cmM, daysInMonth(cmY, cmM));
+
+      const { data: monthlyLimData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', cmY)
+        .eq('month', cmM + 1);
+      setMonthlyLimits((monthlyLimData as MonthlyLimit[]) ?? []);
+
+      const monthlyAll: DailyEntry[] = [];
+      let mPage = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const mFromIdx = mPage * PAGE_SIZE;
+        const mToIdx = mFromIdx + PAGE_SIZE - 1;
+        const { data: mData, error: mError } = await supabase
+          .from('daily_entries')
+          .select('*')
+          .gte('entry_date', cmFrom)
+          .lte('entry_date', cmTo)
+          .order('entry_date', { ascending: true })
+          .range(mFromIdx, mToIdx);
+        if (mError) break;
+        const mRows = (mData as DailyEntry[]) ?? [];
+        monthlyAll.push(...mRows);
+        if (mRows.length < PAGE_SIZE) break;
+        mPage += 1;
+      }
+      setMonthlyEntries(monthlyAll);
     } finally {
       setLoading(false);
     }
@@ -324,6 +360,69 @@ export function DashboardPage() {
   );
 
   // --------------------------------------------------------
+  // Derived: current-month data (always uses current month, for breakdown table only)
+  // --------------------------------------------------------
+  const cmYear = useMemo(() => new Date().getFullYear(), []);
+  const cmMonth = useMemo(() => new Date().getMonth(), []);
+  const cmDim = useMemo(() => daysInMonth(cmYear, cmMonth), [cmYear, cmMonth]);
+  const cmMtdCutoff = useMemo(() => yesterdayStr(), []);
+  const cmYesterdayDate = useMemo(() => yesterdayStr(), []);
+  const cmSelectedDays = useMemo(() => {
+    const start = new Date(dateStr(cmYear, cmMonth, 1) + 'T00:00:00');
+    const end = new Date(cmMtdCutoff + 'T00:00:00');
+    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  }, [cmYear, cmMonth, cmMtdCutoff]);
+
+  const monthlyLimitMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of monthlyLimits) {
+      const key = `${l.department_id}|${l.section_id ?? ''}|${l.fuel_type_id}`;
+      m[key] = Number(l.limit_value) || 0;
+    }
+    return m;
+  }, [monthlyLimits]);
+
+  const getLimitMonthly = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      monthlyLimitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
+    [monthlyLimitMap],
+  );
+
+  const consumptionByDayMonthly = useMemo(() => {
+    const m: Record<string, Record<string, number>> = {};
+    for (const e of monthlyEntries) {
+      const key = `${e.department_id}|${e.section_id ?? ''}|${e.fuel_type_id}`;
+      (m[key] ??= {})[e.entry_date] = (m[key]?.[e.entry_date] ?? 0) + (Number(e.consumption) || 0);
+    }
+    return m;
+  }, [monthlyEntries]);
+
+  const getYesterdayMonthly = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      consumptionByDayMonthly[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`]?.[cmYesterdayDate] ?? 0,
+    [consumptionByDayMonthly, cmYesterdayDate],
+  );
+
+  const getMtdMonthly = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number => {
+      const dayMap = consumptionByDayMonthly[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`];
+      if (!dayMap) return 0;
+      let sum = 0;
+      for (const [d, v] of Object.entries(dayMap)) {
+        if (d <= cmMtdCutoff) sum += v;
+      }
+      return sum;
+    },
+    [consumptionByDayMonthly, cmMtdCutoff],
+  );
+
+  const getSelectedLimitMonthly = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      (getLimitMonthly(deptId, sectionId, fuelTypeId) / cmDim) * cmSelectedDays,
+    [getLimitMonthly, cmDim, cmSelectedDays],
+  );
+
+  // --------------------------------------------------------
   // Derived: bar chart data per fuel type — Limit vs Fact by department
   // --------------------------------------------------------
   const barDataByFuel = useMemo(() => {
@@ -428,11 +527,11 @@ export function DashboardPage() {
 
       for (const ft of orderedFuels) {
         if (!isFuelEnabled(d.id, ft.id)) continue;
-        const ml = getLimit(d.id, null, ft.id);
-        const yest = getYesterday(d.id, null, ft.id);
-        const dl = ml / dim;
-        const sl = dl * selectedDays;
-        const mtdF = getMtd(d.id, null, ft.id);
+        const ml = getLimitMonthly(d.id, null, ft.id);
+        const yest = getYesterdayMonthly(d.id, null, ft.id);
+        const dl = ml / cmDim;
+        const sl = dl * cmSelectedDays;
+        const mtdF = getMtdMonthly(d.id, null, ft.id);
         rows.push({
           id: `dept-${d.id}-${ft.id}`, label: ln(ft), fuelCode: ft.code, unit: ft.unit,
           type: 'data',
@@ -448,17 +547,17 @@ export function DashboardPage() {
       // Only show total row if at least one department has this fuel enabled
       if (!realDepartments.some((d) => isFuelEnabled(d.id, ft.id))) continue;
       const tot = totalByFuel[ft.id];
-      const dl = tot.monthly / dim;
+      const dl = tot.monthly / cmDim;
       rows.push({
         id: `total-${ft.id}`, label: `${ln(ft)} (${t('total')})`, fuelCode: ft.code, unit: ft.unit,
         type: 'total',
         monthlyLimit: tot.monthly, yesterday: tot.yesterday, dailyLimit: dl, dailyFact: tot.yesterday,
-        selectedLimit: dl * selectedDays, mtdFact: tot.mtdFact,
+        selectedLimit: dl * cmSelectedDays, mtdFact: tot.mtdFact,
       });
     }
 
     return rows;
-  }, [realDepartments, orderedFuels, getLimit, getYesterday, getMtd, dim, selectedDays, ln, t, isFuelEnabled]);
+  }, [realDepartments, orderedFuels, getLimitMonthly, getYesterdayMonthly, getMtdMonthly, cmDim, cmSelectedDays, ln, t, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: warnings — departments at >=80% of their MTD limit
