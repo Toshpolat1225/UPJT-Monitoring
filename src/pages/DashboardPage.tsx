@@ -654,6 +654,20 @@ export function DashboardPage() {
                     </div>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs font-medium text-green-600">{t('economy')}</span>
+                    <span
+                      className={`text-sm font-semibold ${
+                        fs.lim - fs.fact > 0
+                          ? 'text-green-600'
+                          : fs.lim - fs.fact < 0
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
+                      }`}
+                    >
+                      {fmt(fs.lim - fs.fact)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{t('percent')}</span>
                     <span
                       className={`text-sm font-bold ${
