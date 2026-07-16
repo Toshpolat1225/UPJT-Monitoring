@@ -128,3 +128,12 @@ export interface RolePermission {
   permission: string;
   allowed: boolean;
 }
+
+export interface DepartmentFuelMatrix {
+  id: string;
+  department_id: string;
+  fuel_type_id: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}

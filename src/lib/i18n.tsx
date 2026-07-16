@@ -112,6 +112,9 @@ const dict = {
   dateTo: { uz: "Sana (gacha)", ru: "Sana (gacha)" },
   selectCompany: { uz: "Kompaniya tanlang", ru: "Kompaniya tanlang" },
   noCompany: { uz: "Kompaniya biriktirilmagan", ru: "Kompaniya biriktirilmagan" },
+  fuelMatrix: { uz: "Yoqilg'i matritsasi", ru: "Матрица топлива" },
+  fuelMatrixHint: { uz: "Sex uchun ruxsat etilgan yoqilg'i turlarini sozlang", ru: "Настройте разрешённые виды топлива для цехов" },
+  allowed: { uz: "Ruxsat berilgan", ru: "Разрешён" },
 } as const;
 
 export type DictKey = keyof typeof dict;

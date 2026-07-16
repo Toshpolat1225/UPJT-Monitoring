@@ -9,6 +9,7 @@ import {
   type FuelType,
   type FuelUnit,
   type Company,
+  type DepartmentFuelMatrix,
 } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
@@ -17,7 +18,7 @@ import { useAuth } from '../context/AuthContext';
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
-type TabKey = 'companies' | 'departments' | 'sections' | 'vehicles' | 'fuel_types';
+type TabKey = 'companies' | 'departments' | 'sections' | 'vehicles' | 'fuel_types' | 'fuel_matrix';
 
 interface DepartmentForm {
   code: string;
@@ -208,6 +209,8 @@ export function MasterDataPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [matrix, setMatrix] = useState<DepartmentFuelMatrix[]>([]);
+  const [matrixSaving, setMatrixSaving] = useState<Record<string, boolean>>({});
 
   // loading / error per tab
   const [loading, setLoading] = useState<Record<TabKey, boolean>>({
@@ -216,6 +219,7 @@ export function MasterDataPage() {
     sections: false,
     vehicles: false,
     fuel_types: false,
+    fuel_matrix: false,
   });
   const [error, setError] = useState<Record<TabKey, string | null>>({
     companies: null,
@@ -223,6 +227,7 @@ export function MasterDataPage() {
     sections: null,
     vehicles: null,
     fuel_types: null,
+    fuel_matrix: null,
   });
 
   // modal state
@@ -301,12 +306,30 @@ export function MasterDataPage() {
     setLoading((s) => ({ ...s, fuel_types: false }));
   }, []);
 
+  const fetchMatrix = useCallback(async () => {
+    setLoading((s) => ({ ...s, fuel_matrix: true }));
+    setError((s) => ({ ...s, fuel_matrix: null }));
+    const { data, error: e } = await supabase
+      .from('department_fuel_matrix')
+      .select('*')
+      .order('department_id', { ascending: true });
+    if (e) setError((s) => ({ ...s, fuel_matrix: e.message }));
+    else setMatrix((data as DepartmentFuelMatrix[]) ?? []);
+    setLoading((s) => ({ ...s, fuel_matrix: false }));
+  }, []);
+
   // initial load + reload lookups whenever departments/fuelTypes change
   useEffect(() => {
     void fetchDepartments();
     void fetchFuelTypes();
     void fetchCompanies();
   }, [fetchDepartments, fetchFuelTypes, fetchCompanies]);
+
+  useEffect(() => {
+    if (activeTab === 'fuel_matrix' && departments.length > 0 && fuelTypes.length > 0) {
+      void fetchMatrix();
+    }
+  }, [activeTab, departments, fuelTypes, fetchMatrix]);
 
   useEffect(() => {
     if (activeTab === 'sections') void fetchSections();
@@ -344,8 +367,11 @@ export function MasterDataPage() {
       case 'fuel_types':
         void fetchFuelTypes();
         break;
+      case 'fuel_matrix':
+        void fetchMatrix();
+        break;
     }
-  }, [activeTab, fetchDepartments, fetchSections, fetchVehicles, fetchFuelTypes, fetchCompanies]);
+  }, [activeTab, fetchDepartments, fetchSections, fetchVehicles, fetchFuelTypes, fetchCompanies, fetchMatrix]);
 
   /* ---------------- modal open/close ---------------- */
 
@@ -555,6 +581,7 @@ export function MasterDataPage() {
       { key: 'sections', label: t('section') },
       { key: 'vehicles', label: t('vehicle') },
       { key: 'fuel_types', label: t('fuelType') },
+      { key: 'fuel_matrix', label: t('fuelMatrix') },
     ],
     [t],
   );
@@ -563,6 +590,36 @@ export function MasterDataPage() {
   const submitLabel = editingId ? t('save') : t('create');
   const isLoading = loading[activeTab];
   const tabError = error[activeTab];
+
+  const canEditMatrix = hasAny(['admin', 'gsm']);
+
+  const toggleMatrixCell = useCallback(
+    async (deptId: string, fuelId: string, currentEnabled: boolean) => {
+      const existing = matrix.find((m) => m.department_id === deptId && m.fuel_type_id === fuelId);
+      if (!existing) return;
+      const cellKey = `${deptId}-${fuelId}`;
+      setMatrixSaving((s) => ({ ...s, [cellKey]: true }));
+      const { error: err } = await supabase
+        .from('department_fuel_matrix')
+        .update({ enabled: !currentEnabled })
+        .eq('id', existing.id);
+      if (err) {
+        toast.error(`${t('error')}: ${err.message}`);
+      } else {
+        setMatrix((prev) =>
+          prev.map((m) =>
+            m.id === existing.id ? { ...m, enabled: !currentEnabled } : m,
+          ),
+        );
+      }
+      setMatrixSaving((s) => {
+        const next = { ...s };
+        delete next[cellKey];
+        return next;
+      });
+    },
+    [matrix, t],
+  );
 
   /* ---------------- render ---------------- */
 
@@ -851,6 +908,66 @@ export function MasterDataPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Fuel matrix */}
+          {activeTab === 'fuel_matrix' && (
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('department')}</th>
+                      {fuelTypes.map((f) => (
+                        <th key={f.id} className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground">
+                          {ln(f)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {departments.length === 0 || fuelTypes.length === 0 ? (
+                      <EmptyRow colSpan={fuelTypes.length + 1} />
+                    ) : (
+                      departments.map((d) => (
+                        <tr key={d.id} className="transition hover:bg-muted/30">
+                          <td className="px-4 py-3 text-sm font-medium text-foreground">{ln(d)}</td>
+                          {fuelTypes.map((f) => {
+                            const cell = matrix.find(
+                              (m) => m.department_id === d.id && m.fuel_type_id === f.id,
+                            );
+                            const cellKey = `${d.id}-${f.id}`;
+                            const isSaving = !!matrixSaving[cellKey];
+                            return (
+                              <td key={f.id} className="px-4 py-3 text-center">
+                                {isSaving ? (
+                                  <Loader2 className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
+                                ) : (
+                                  <input
+                                    type="checkbox"
+                                    checked={cell?.enabled ?? false}
+                                    disabled={!canEditMatrix}
+                                    onChange={() =>
+                                      toggleMatrixCell(d.id, f.id, cell?.enabled ?? false)
+                                    }
+                                    className="h-4 w-4 cursor-pointer rounded border-border text-primary focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                  />
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {!canEditMatrix && (
+                <div className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+                  {t('fuelMatrixHint')}
+                </div>
+              )}
             </div>
           )}
 
