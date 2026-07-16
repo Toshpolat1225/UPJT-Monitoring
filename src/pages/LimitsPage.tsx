@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Calendar, Filter, Save, Table2, AlertCircle } from 'lucide-react';
-import { supabase, type Department, type FuelType, type MonthlyLimit, type Section } from '../lib/supabase';
+import { supabase, type Department, type FuelType, type MonthlyLimit, type Section, fetchEnabledFuelKeys } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
 
@@ -60,6 +60,7 @@ export function LimitsPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
+  const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   // --- Filters -----------------------------------------------------------
   const now = new Date();
@@ -81,10 +82,11 @@ export function LimitsPage() {
     (async () => {
       setLoading(true);
       try {
-        const [deptsRes, secsRes, fuelsRes] = await Promise.all([
+        const [deptsRes, secsRes, fuelsRes, fuelKeys] = await Promise.all([
           supabase.from('departments').select('*').order('code'),
           supabase.from('sections').select('*').order('name_uz'),
           supabase.from('fuel_types').select('*').order('code'),
+          fetchEnabledFuelKeys(),
         ]);
 
         if (cancelled) return;
@@ -93,6 +95,7 @@ export function LimitsPage() {
         setDepartments(depts);
         setSections((secsRes.data as Section[]) ?? []);
         setFuelTypes((fuelsRes.data as FuelType[]) ?? []);
+        setEnabledFuels(fuelKeys);
       } catch (err) {
         if (!cancelled) {
           console.error(err);
@@ -232,6 +235,7 @@ export function LimitsPage() {
     for (const row of rows) {
       if (row.readonly) continue; // aggregated totals are derived, not stored
       for (const ft of fuelTypes) {
+        if (!enabledFuels.has(`${row.departmentId}|${ft.id}`)) continue;
         const key = cellKey(row.departmentId, row.sectionId, ft.id);
         const raw = values[key];
         if (raw === undefined || raw === '') continue; // skip untouched cells
@@ -424,7 +428,7 @@ export function LimitsPage() {
       </div>
 
       {/* Grid */}
-      {rows.length === 0 || fuelTypes.length === 0 ? (
+      {rows.length === 0 || fuelTypes.length === 0 || enabledFuels.size === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card py-16 text-center shadow-sm">
           <AlertCircle className="h-10 w-10 text-muted-foreground" />
           <p className="mt-3 text-sm text-muted-foreground">{t('noData')}</p>
@@ -437,21 +441,23 @@ export function LimitsPage() {
                 <th className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted/30 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {departmentFilter === 'all' ? t('department') : t('section')}
                 </th>
-                {fuelTypes.map((ft) => (
-                  <th
-                    key={ft.id}
-                    className="min-w-[140px] px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span>{ln(ft)}</span>
-                      {ft.unit && (
-                        <span className="text-[10px] font-normal normal-case text-muted-foreground/70">
-                          {formatUnit(ft.unit, lang)}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                ))}
+                {fuelTypes.map((ft) =>
+                  rows.some((r) => enabledFuels.has(`${r.departmentId}|${ft.id}`)) ? (
+                    <th
+                      key={ft.id}
+                      className="min-w-[140px] px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span>{ln(ft)}</span>
+                        {ft.unit && (
+                          <span className="text-[10px] font-normal normal-case text-muted-foreground/70">
+                            {formatUnit(ft.unit, lang)}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  ) : null,
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -468,6 +474,7 @@ export function LimitsPage() {
                     </div>
                   </td>
                   {fuelTypes.map((ft) => {
+                    if (!enabledFuels.has(`${row.departmentId}|${ft.id}`)) return null;
                     const key = cellKey(row.departmentId, row.sectionId, ft.id);
                     const value = values[key] ?? '';
 

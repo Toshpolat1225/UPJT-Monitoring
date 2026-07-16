@@ -137,3 +137,16 @@ export interface DepartmentFuelMatrix {
   created_at: string;
   updated_at: string;
 }
+
+/** Fetch the fuel matrix and return a Set of "deptId|fuelId" keys that are enabled. */
+export async function fetchEnabledFuelKeys(): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('department_fuel_matrix')
+    .select('department_id, fuel_type_id, enabled');
+  if (error) throw error;
+  const set = new Set<string>();
+  for (const row of (data as Pick<DepartmentFuelMatrix, 'department_id' | 'fuel_type_id' | 'enabled'>[]) ?? []) {
+    if (row.enabled) set.add(`${row.department_id}|${row.fuel_type_id}`);
+  }
+  return set;
+}

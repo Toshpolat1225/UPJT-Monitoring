@@ -9,6 +9,7 @@ import {
   type Vehicle,
   type FuelType,
   type DailyEntry,
+  fetchEnabledFuelKeys,
 } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
@@ -96,6 +97,7 @@ export function EntriesPage() {
   const [sections, setSections] = useState<Section[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
+  const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   // Entries
   const [entries, setEntries] = useState<EntryRow[]>([]);
@@ -106,6 +108,7 @@ export function EntriesPage() {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingDisabledFuel, setEditingDisabledFuel] = useState(false);
 
   // --------------------------------------------------------
   // Load reference data once
@@ -117,16 +120,19 @@ export function EntriesPage() {
         { data: secs },
         { data: vehs },
         { data: fuels },
+        fuelKeys,
       ] = await Promise.all([
         supabase.from('departments').select('*').order('code'),
         supabase.from('sections').select('*').order('name_ru'),
         supabase.from('vehicles').select('*').order('code'),
         supabase.from('fuel_types').select('*').order('code'),
+        fetchEnabledFuelKeys(),
       ]);
       setDepartments((depts as Department[]) ?? []);
       setSections((secs as Section[]) ?? []);
       setVehicles((vehs as Vehicle[]) ?? []);
       setFuelTypes((fuels as FuelType[]) ?? []);
+      setEnabledFuels(fuelKeys);
     })();
   }, []);
 
@@ -174,8 +180,11 @@ export function EntriesPage() {
   );
 
   const formVehicles = useMemo(
-    () => vehicles.filter((v) => v.department_id === form.department_id),
-    [vehicles, form.department_id],
+    () => vehicles.filter((v) =>
+      v.department_id === form.department_id &&
+      enabledFuels.has(`${v.department_id}|${v.fuel_type_id}`),
+    ),
+    [vehicles, form.department_id, enabledFuels],
   );
 
   const selectedFuelType = useMemo(
@@ -257,10 +266,12 @@ export function EntriesPage() {
   // --------------------------------------------------------
   const openCreate = () => {
     setForm(emptyForm());
+    setEditingDisabledFuel(false);
     setModalOpen(true);
   };
 
   const openEdit = (row: EntryRow) => {
+    const isFuelEnabled = enabledFuels.has(`${row.department_id}|${row.fuel_type_id}`);
     setForm({
       id: row.id,
       entry_date: row.entry_date,
@@ -274,12 +285,16 @@ export function EntriesPage() {
       transfer_out: String(row.transfer_out ?? ''),
       consumption: String(row.consumption ?? ''),
     });
+    // If the existing entry references a disabled fuel, keep it viewable but
+    // mark it so the dropdown shows it as a locked selection.
+    setEditingDisabledFuel(!isFuelEnabled);
     setModalOpen(true);
   };
 
   const closeModal = () => {
     setModalOpen(false);
     setForm(emptyForm());
+    setEditingDisabledFuel(false);
   };
 
   const handleField = (field: keyof FormState, value: string) => {
@@ -297,13 +312,15 @@ export function EntriesPage() {
     }));
   };
 
-  // When vehicle changes, auto-fill fuel type from vehicle
+  // When vehicle changes, auto-fill fuel type from vehicle (only if enabled)
   const handleVehicleChange = (vehicleId: string) => {
     const v = vehicles.find((x) => x.id === vehicleId);
+    const fuelId = v?.fuel_type_id ?? '';
+    const isAllowed = fuelId && enabledFuels.has(`${v?.department_id}|${fuelId}`);
     setForm((prev) => ({
       ...prev,
       vehicle_id: vehicleId,
-      fuel_type_id: v?.fuel_type_id ?? '',
+      fuel_type_id: isAllowed ? fuelId : '',
     }));
   };
 
@@ -708,13 +725,20 @@ export function EntriesPage() {
                 {/* Fuel type (read-only, auto-filled) */}
                 <div>
                   <label className={labelCls}>{t('fuelType')}</label>
-                  <input
-                    type="text"
-                    value={selectedFuelType ? ln(selectedFuelType) : ''}
-                    readOnly
-                    placeholder="—"
-                    className={`${inputCls} cursor-not-allowed`}
-                  />
+                  {editingDisabledFuel ? (
+                    <div className={`${inputCls} flex items-center gap-2 border-orange-300 bg-orange-50/50`}>
+                      <span className="text-foreground">{selectedFuelType ? ln(selectedFuelType) : '—'}</span>
+                      <span className="text-xs text-orange-600">({t('disabled')})</span>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={selectedFuelType ? ln(selectedFuelType) : ''}
+                      readOnly
+                      placeholder="—"
+                      className={`${inputCls} cursor-not-allowed`}
+                    />
+                  )}
                   {/* hidden field to keep fuel_type_id in form state */}
                   <input type="hidden" value={form.fuel_type_id} />
                 </div>

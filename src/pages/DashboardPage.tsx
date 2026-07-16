@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { AlertTriangle, TrendingUp, Fuel, Gauge } from 'lucide-react';
-import { supabase, type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry } from '../lib/supabase';
+import { supabase, type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry, fetchEnabledFuelKeys } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
 
@@ -104,6 +104,7 @@ export function DashboardPage() {
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
   const [limits, setLimits] = useState<MonthlyLimit[]>([]);
   const [entries, setEntries] = useState<DailyEntry[]>([]);
+  const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -113,14 +114,16 @@ export function DashboardPage() {
   // --------------------------------------------------------
   useEffect(() => {
     (async () => {
-      const [{ data: depts }, { data: secs }, { data: fuels }] = await Promise.all([
+      const [{ data: depts }, { data: secs }, { data: fuels }, fuelKeys] = await Promise.all([
         supabase.from('departments').select('*').order('code'),
         supabase.from('sections').select('*').order('name_ru'),
         supabase.from('fuel_types').select('*').order('code'),
+        fetchEnabledFuelKeys(),
       ]);
       setDepartments((depts as Department[]) ?? []);
       setSections((secs as Section[]) ?? []);
       setFuelTypes((fuels as FuelType[]) ?? []);
+      setEnabledFuels(fuelKeys);
     })();
   }, []);
 
@@ -255,6 +258,11 @@ export function DashboardPage() {
     return m;
   }, [sections]);
 
+  const isFuelEnabled = useCallback(
+    (deptId: string, fuelTypeId: string): boolean => enabledFuels.has(`${deptId}|${fuelTypeId}`),
+    [enabledFuels],
+  );
+
   // --------------------------------------------------------
   // Derived: limit lookup keyed by `${deptId}|${sectionId ?? ''}|${fuelTypeId}`
   // --------------------------------------------------------
@@ -321,14 +329,16 @@ export function DashboardPage() {
   const barDataByFuel = useMemo(() => {
     const map: Record<string, { name: string; limit: number; fact: number }[]> = {};
     for (const ft of orderedFuels) {
-      map[ft.id] = realDepartments.map((d) => {
-        const lim = getSelectedLimit(d.id, null, ft.id);
-        const fact = getMtd(d.id, null, ft.id);
-        return { name: ln(d), limit: Math.round(lim), fact: Math.round(fact) };
-      });
+      map[ft.id] = realDepartments
+        .filter((d) => isFuelEnabled(d.id, ft.id))
+        .map((d) => {
+          const lim = getSelectedLimit(d.id, null, ft.id);
+          const fact = getMtd(d.id, null, ft.id);
+          return { name: ln(d), limit: Math.round(lim), fact: Math.round(fact) };
+        });
     }
     return map;
-  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln]);
+  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: fuel type summary — per fuel independent data (own scale)
@@ -338,12 +348,13 @@ export function DashboardPage() {
       let lim = 0;
       let fact = 0;
       for (const d of realDepartments) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
         lim += getSelectedLimit(d.id, null, ft.id);
         fact += getMtd(d.id, null, ft.id);
       }
       return { fuel: ft, lim, fact, pct: safePct(fact, lim) };
-    });
-  }, [orderedFuels, realDepartments, getSelectedLimit, getMtd]);
+    }).filter((fs) => realDepartments.some((d) => isFuelEnabled(d.id, fs.fuel.id)));
+  }, [orderedFuels, realDepartments, getSelectedLimit, getMtd, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: daily trend data per fuel type — limit + fact for each day
@@ -353,16 +364,19 @@ export function DashboardPage() {
     const start = new Date(dateFrom + 'T00:00:00');
     const end = new Date(Math.min(new Date(dateTo + 'T00:00:00').getTime(), new Date(mtdCutoff + 'T00:00:00').getTime()));
     for (const ft of orderedFuels) {
-      // Sum monthly limits across all departments/sections for this fuel
+      if (!realDepartments.some((d) => isFuelEnabled(d.id, ft.id))) continue;
+      // Sum monthly limits across all enabled departments for this fuel
       let totalMonthlyLimit = 0;
       for (const d of realDepartments) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
         totalMonthlyLimit += getLimit(d.id, null, ft.id);
       }
       const dailyLimit = totalMonthlyLimit / dim;
-      // Build day-by-day fact consumption for this fuel
+      // Build day-by-day fact consumption for this fuel (only from enabled departments)
       const factByDay: Record<string, number> = {};
       for (const e of entries) {
         if (e.fuel_type_id !== ft.id) continue;
+        if (!isFuelEnabled(e.department_id, e.fuel_type_id)) continue;
         if (e.entry_date <= mtdCutoff) {
           factByDay[e.entry_date] = (factByDay[e.entry_date] ?? 0) + (Number(e.consumption) || 0);
         }
@@ -375,7 +389,7 @@ export function DashboardPage() {
       map[ft.id] = arr;
     }
     return map;
-  }, [orderedFuels, realDepartments, entries, getLimit, dim, mtdCutoff, dateFrom, dateTo]);
+  }, [orderedFuels, realDepartments, entries, getLimit, dim, mtdCutoff, dateFrom, dateTo, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: breakdown table rows — per fuel type per department/section
@@ -402,6 +416,10 @@ export function DashboardPage() {
     }
 
     for (const d of realDepartments) {
+      // Skip department header if no fuel types are enabled for this department
+      const deptHasAnyFuel = orderedFuels.some((ft) => isFuelEnabled(d.id, ft.id));
+      if (!deptHasAnyFuel) continue;
+
       rows.push({
         id: `dept-${d.id}`, label: ln(d), fuelCode: '', unit: '',
         type: 'dept-header',
@@ -409,6 +427,7 @@ export function DashboardPage() {
       });
 
       for (const ft of orderedFuels) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
         const ml = getLimit(d.id, null, ft.id);
         const yest = getYesterday(d.id, null, ft.id);
         const dl = ml / dim;
@@ -426,6 +445,8 @@ export function DashboardPage() {
     }
 
     for (const ft of orderedFuels) {
+      // Only show total row if at least one department has this fuel enabled
+      if (!realDepartments.some((d) => isFuelEnabled(d.id, ft.id))) continue;
       const tot = totalByFuel[ft.id];
       const dl = tot.monthly / dim;
       rows.push({
@@ -437,7 +458,7 @@ export function DashboardPage() {
     }
 
     return rows;
-  }, [realDepartments, orderedFuels, getLimit, getYesterday, getMtd, dim, selectedDays, ln, t]);
+  }, [realDepartments, orderedFuels, getLimit, getYesterday, getMtd, dim, selectedDays, ln, t, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: warnings — departments at >=80% of their MTD limit
@@ -456,6 +477,7 @@ export function DashboardPage() {
       let lim = 0;
       let fact = 0;
       for (const ft of orderedFuels) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
         lim += getSelectedLimit(d.id, null, ft.id);
         fact += getMtd(d.id, null, ft.id);
       }
@@ -465,7 +487,7 @@ export function DashboardPage() {
       }
     }
     return list.sort((a, b) => b.pct - a.pct);
-  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln]);
+  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Render helpers

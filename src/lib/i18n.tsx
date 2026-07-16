@@ -115,6 +115,7 @@ const dict = {
   fuelMatrix: { uz: "Yoqilg'i matritsasi", ru: "Матрица топлива" },
   fuelMatrixHint: { uz: "Sex uchun ruxsat etilgan yoqilg'i turlarini sozlang", ru: "Настройте разрешённые виды топлива для цехов" },
   allowed: { uz: "Ruxsat berilgan", ru: "Разрешён" },
+  disabled: { uz: "O'chirilgan", ru: "Отключён" },
 } as const;
 
 export type DictKey = keyof typeof dict;
