@@ -534,7 +534,10 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {orderedFuels.map((ft) => {
               const style = FUEL_STYLES[ft.code] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
-              const chartData = barDataByFuel[ft.id] ?? [];
+              const chartData = (barDataByFuel[ft.id] ?? []).map((r) => ({
+                ...r,
+                saved: Math.max(0, r.limit - r.fact),
+              }));
               return (
                 <div key={ft.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
                   <div className="mb-4 flex items-center gap-2">
@@ -559,6 +562,7 @@ export function DashboardPage() {
                       <Legend wrapperStyle={{ fontSize: '12px' }} />
                       <Bar dataKey="limit" name={t('limit')} fill={style.limit} radius={[4, 4, 0, 0]} />
                       <Bar dataKey="fact" name={t('fact')} fill={style.fact} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="saved" name={t('economy')} fill="#16a34a" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                   <div className="mt-4 overflow-x-auto">
