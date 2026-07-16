@@ -48,6 +48,8 @@ const dict = {
   bySection: { uz: "Bo'limlar bo'yicha", ru: "Bo'limlar bo'yicha" },
   byFuelType: { uz: "Yoqilg'i turlari bo'yicha", ru: "Yoqilg'i turlari bo'yicha" },
   dailyTrend: { uz: "Kunlik dinamika", ru: "Kunlik dinamika" },
+  daily: { uz: "Kunlik", ru: "Kunlik" },
+  period: { uz: "Davr", ru: "Davr" },
   limitVsFact: { uz: "Limit va Fakt", ru: "Limit va Fakt" },
   alerts: { uz: "Ogohlantirishlar", ru: "Ogohlantirishlar" },
   overLimit: { uz: "Limitdan oshib ketdi", ru: "Limitdan oshib ketdi" },

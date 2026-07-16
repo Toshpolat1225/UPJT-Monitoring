@@ -106,6 +106,21 @@ export function DashboardPage() {
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [monthlyEntries, setMonthlyEntries] = useState<DailyEntry[]>([]);
   const [monthlyLimits, setMonthlyLimits] = useState<MonthlyLimit[]>([]);
+
+  // Local UI-only state for breakdown table date pickers (not wired to data)
+  const [dailyDateFrom, setDailyDateFrom] = useState<string>(() => {
+    const now = new Date();
+    return dateStr(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [dailyDateTo, setDailyDateTo] = useState<string>(() => yesterdayStr());
+  const [periodDateFrom, setPeriodDateFrom] = useState<string>(() => {
+    const now = new Date();
+    return dateStr(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [periodDateTo, setPeriodDateTo] = useState<string>(() => {
+    const now = new Date();
+    return dateStr(now.getFullYear(), now.getMonth(), daysInMonth(now.getFullYear(), now.getMonth()));
+  });
   const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
@@ -864,10 +879,54 @@ export function DashboardPage() {
                       colSpan={4}
                       className="border-r border-border px-3 py-2.5 text-center font-semibold text-foreground"
                     >
-                      {t('yesterday')}
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-xs font-semibold text-muted-foreground">{t('daily')}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateFrom')}</label>
+                            <input
+                              type="date"
+                              value={dailyDateFrom}
+                              onChange={(e) => setDailyDateFrom(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateTo')}</label>
+                            <input
+                              type="date"
+                              value={dailyDateTo}
+                              onChange={(e) => setDailyDateTo(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </th>
                     <th colSpan={4} className="px-3 py-2.5 text-center font-semibold text-foreground">
-                      {t('monthToDate')}
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-xs font-semibold text-muted-foreground">{t('period')}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateFrom')}</label>
+                            <input
+                              type="date"
+                              value={periodDateFrom}
+                              onChange={(e) => setPeriodDateFrom(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateTo')}</label>
+                            <input
+                              type="date"
+                              value={periodDateTo}
+                              onChange={(e) => setPeriodDateTo(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </th>
                   </tr>
                   <tr className="border-b border-border bg-muted/30">
