@@ -762,18 +762,6 @@ export function DashboardPage() {
                       {t('department')} / {t('fuelType')}
                     </th>
                     <th
-                      rowSpan={2}
-                      className="border-r border-border px-3 py-2.5 text-right font-semibold text-foreground"
-                    >
-                      {t('monthlyLimit')}
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="border-r border-border px-3 py-2.5 text-right font-semibold text-foreground"
-                    >
-                      {t('yesterday')}
-                    </th>
-                    <th
                       colSpan={4}
                       className="border-r border-border px-3 py-2.5 text-center font-semibold text-foreground"
                     >
@@ -813,7 +801,7 @@ export function DashboardPage() {
                 <tbody>
                   {breakdownRows.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
                         {t('noData')}
                       </td>
                     </tr>
@@ -822,7 +810,7 @@ export function DashboardPage() {
                     if (row.type === 'dept-header') {
                       return (
                         <tr key={row.id} className="border-b border-border bg-muted/30">
-                          <td colSpan={11} className="px-3 py-2.5 font-semibold text-foreground">
+                          <td colSpan={9} className="px-3 py-2.5 font-semibold text-foreground">
                             {row.label}
                           </td>
                         </tr>
@@ -849,12 +837,6 @@ export function DashboardPage() {
                             </span>
                             <span className="text-xs text-muted-foreground ml-1">({formatUnit(row.unit, lang)})</span>
                           </span>
-                        </td>
-                        <td className="border-r border-border px-3 py-2.5 text-right text-foreground">
-                          {fmt(row.monthlyLimit)}
-                        </td>
-                        <td className="border-r border-border px-3 py-2.5 text-right text-foreground">
-                          {fmt(row.yesterday)}
                         </td>
                         <td className="border-l border-border px-3 py-2.5 text-right text-foreground">
                           {fmt(row.dailyLimit)}
