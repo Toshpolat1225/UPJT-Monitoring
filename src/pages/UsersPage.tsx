@@ -47,7 +47,8 @@ function UsersTab() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
-  const [form, setForm] = useState({ full_name: '', email: '', department_id: '', company_id: '', roles: [] as string[] });
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ full_name: '', email: '', department_id: '', company_id: '', roles: [] as string[], password: '', passwordConfirm: '' });
 
   const load = async () => {
     const [p, r, d, c] = await Promise.all([
@@ -65,12 +66,15 @@ function UsersTab() {
 
   const userRoles = (uid: string) => roles.filter((r) => r.user_id === uid).map((r) => r.role);
 
-  const openNew = () => { setEditing(null); setForm({ full_name: '', email: '', department_id: '', company_id: '', roles: [] }); setOpen(true); };
-  const openEdit = (p: Profile) => { setEditing(p); setForm({ full_name: p.full_name ?? '', email: p.email ?? '', department_id: p.department_id ?? '', company_id: p.company_id ?? '', roles: userRoles(p.id) }); setOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ full_name: '', email: '', department_id: '', company_id: '', roles: [], password: '', passwordConfirm: '' }); setOpen(true); };
+  const openEdit = (p: Profile) => { setEditing(p); setForm({ full_name: p.full_name ?? '', email: p.email ?? '', department_id: p.department_id ?? '', company_id: p.company_id ?? '', roles: userRoles(p.id), password: '', passwordConfirm: '' }); setOpen(true); };
 
   const save = async () => {
+    if (!form.full_name.trim()) { toast.error(t('fullName')); return; }
     if (!form.email.trim()) { toast.error(t('email')); return; }
-    if (!form.roles.length) { toast.error(t('role')); return; }
+    if (!form.department_id) { toast.error(t('selectDept')); return; }
+    if (!form.company_id) { toast.error(t('selectCompany')); return; }
+    if (!form.roles.length) { toast.error(t('selectRole')); return; }
 
     if (editing) {
       const { error: pErr } = await supabase.from('profiles').update({
@@ -84,8 +88,40 @@ function UsersTab() {
       }
       toast.success(t('saved'));
     } else {
-      toast.error(t('noPermission'));
-      return;
+      if (!form.password || form.password.length < 8) { toast.error(t('passwordTooShort')); return; }
+      if (form.password !== form.passwordConfirm) { toast.error(t('passwordMismatch')); return; }
+
+      setCreating(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({
+            full_name: form.full_name.trim(),
+            email: form.email.trim(),
+            department_id: form.department_id || null,
+            company_id: form.company_id || null,
+            roles: form.roles,
+            password: form.password,
+          }),
+        });
+        const result = await res.json();
+        if (!res.ok || result.error) {
+          toast.error(result.error || t('userCreateFailed'));
+          setCreating(false);
+          return;
+        }
+        toast.success(t('userCreated'));
+      } catch {
+        toast.error(t('userCreateFailed'));
+        setCreating(false);
+        return;
+      }
+      setCreating(false);
     }
     setOpen(false);
     await load();
@@ -153,10 +189,28 @@ function UsersTab() {
                   })}
                 </div>
               </div>
+              {!editing && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-foreground">{t('password')}</label>
+                    <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                      placeholder="••••••••" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-foreground">{t('passwordConfirm')}</label>
+                    <input type="password" value={form.passwordConfirm} onChange={(e) => setForm({ ...form, passwordConfirm: e.target.value })}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                      placeholder="••••••••" />
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
               <button onClick={() => setOpen(false)} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted">{t('cancel')}</button>
-              <button onClick={save} className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90">{t('save')}</button>
+              <button onClick={save} disabled={creating} className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                {creating ? t('creating') : t('save')}
+              </button>
             </div>
           </div>
         </div>

@@ -126,6 +126,15 @@ const dict = {
   grandTotal: { uz: "UMUMIY JAMI", ru: "ОБЩИЙ ИТОГ" },
   tejalgan: { uz: "Tejalgan", ru: "Экономия" },
   tejamkorlik: { uz: "Tejamkorlik %", ru: "Экономность %" },
+  passwordConfirm: { uz: "Parolni tasdiqlang", ru: "Подтвердите пароль" },
+  passwordTooShort: { uz: "Parol kamida 8 ta belgidan iborat bo'lishi kerak", ru: "Пароль должен содержать минимум 8 символов" },
+  passwordMismatch: { uz: "Parollar mos kelmaydi", ru: "Пароли не совпадают" },
+  fillAllFields: { uz: "Barcha majburiy maydonlarni to'ldiring", ru: "Заполните все обязательные поля" },
+  selectDept: { uz: "Sexni tanlang", ru: "Выберите цех" },
+  selectRole: { uz: "Rolni tanlang", ru: "Выберите роль" },
+  creating: { uz: "Yaratilmoqda...", ru: "Создание..." },
+  userCreated: { uz: "Foydalanuvchi yaratildi", ru: "Пользователь создан" },
+  userCreateFailed: { uz: "Foydalanuvchi yaratishda xatolik", ru: "Ошибка при создании пользователя" },
 } as const;
 
 export type DictKey = keyof typeof dict;
