@@ -9,10 +9,12 @@ import {
   type Vehicle,
   type FuelType,
   type DailyEntry,
+  type MonthlyLimit,
   fetchEnabledFuelKeys,
 } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
+import { computeFuelTotals } from '../lib/fuelTotals';
 
 // ============================================================
 // Types
@@ -52,6 +54,9 @@ const num = (v: string): number => {
 
 const fmtNum = (n: number): string =>
   Number.isFinite(n) ? n.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) : '0';
+
+const fmtPct = (n: number): string =>
+  Number.isFinite(n) ? `${Math.ceil(n)}%` : '0%';
 
 const emptyForm = (): FormState => ({
   entry_date: todayStr(),
@@ -101,6 +106,7 @@ export function EntriesPage() {
 
   // Entries
   const [entries, setEntries] = useState<EntryRow[]>([]);
+  const [limits, setLimits] = useState<MonthlyLimit[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Modal
@@ -162,6 +168,16 @@ export function EntriesPage() {
         return;
       }
       setEntries((data as EntryRow[]) ?? []);
+
+      // Load monthly limits for the filter period
+      const fromY = parseInt(filterDateFrom.slice(0, 4));
+      const fromM = parseInt(filterDateFrom.slice(5, 7));
+      const { data: limData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', fromY)
+        .eq('month', fromM);
+      setLimits((limData as MonthlyLimit[]) ?? []);
     } finally {
       setLoading(false);
     }
@@ -419,7 +435,15 @@ export function EntriesPage() {
   };
 
   // --------------------------------------------------------
-  // Excel export
+  // Totals (computed from filtered entries only)
+  // --------------------------------------------------------
+  const fuelTotals = useMemo(
+    () => computeFuelTotals(entries, fuelTypes, limits),
+    [entries, fuelTypes, limits],
+  );
+
+  // --------------------------------------------------------
+  // Excel export (filtered data + Jami block with SUMIF formulas)
   // --------------------------------------------------------
   const handleExport = () => {
     if (entries.length === 0) {
@@ -427,22 +451,88 @@ export function EntriesPage() {
       return;
     }
 
-    const rows = entries.map((e) => ({
-      [t('date')]: e.entry_date,
-      [t('department')]: e.department ? ln(e.department) : '',
-      [t('section')]: e.section ? ln(e.section) : '',
-      [t('code')]: e.vehicle?.code ?? '',
-      [t('vehicle')]: e.vehicle ? ln(e.vehicle) : '',
-      [t('fuelType')]: e.fuel_type ? ln(e.fuel_type) : '',
-      [t('opening')]: e.opening_balance,
-      [t('receivedAzs')]: e.received_azs,
-      [t('transferIn')]: e.transfer_in,
-      [t('transferOut')]: e.transfer_out,
-      [t('consumption')]: e.consumption,
-      [t('closing')]: e.closing_balance,
-    }));
+    // Header row
+    const headers = [
+      t('date'),
+      t('section'),
+      t('fuelType'),
+      t('limit'),
+      t('consumption'),
+      t('tejalgan'),
+      t('tejamkorlik'),
+    ];
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    // Data rows: Sana | Sex | Yoqilg'i turi | Limit | Amalda | Tejalgan | Tejamkorlik %
+    const dataRows = entries.map((e) => [
+      e.entry_date,
+      e.section ? ln(e.section) : '',
+      e.fuel_type ? ln(e.fuel_type) : '',
+      0, // Limit — filled via SUMIF formula below
+      Number(e.consumption) || 0,
+      0, // Tejalgan — formula
+      0, // Tejamkorlik % — formula
+    ]);
+
+    // Build sheet manually with formulas
+    const aoa: (string | number)[][] = [headers, ...dataRows];
+
+    // Add 2 empty rows, then Jami block
+    aoa.push([]);
+    aoa.push([]);
+
+    const dataStart = 2; // first data row in Excel (1-based)
+    const dataEnd = dataStart + dataRows.length - 1;
+    const colFuel = 'C'; // Yoqilg'i turi column
+    const colLimit = 'D';
+    const colActual = 'E';
+    const colSaved = 'F';
+    const colPct = 'G';
+
+    // Jami block header
+    aoa.push([t('total')]);
+
+    // Per-fuel totals with SUMIF formulas
+    const fuelRowsStart = aoa.length + 1; // 1-based Excel row
+    for (const ft of fuelTypes) {
+      const fuelName = ft.name_uz;
+      const rowIdx = aoa.length + 1; // 1-based
+      aoa.push([
+        `${t('total')} ${fuelName}`,
+        '',
+        fuelName,
+        { f: `SUMIF(${colFuel}${dataStart}:${colFuel}${dataEnd},"${fuelName}",${colActual}${dataStart}:${colActual}${dataEnd})` } as unknown as string,
+        { f: `SUMIF(${colFuel}${dataStart}:${colFuel}${dataEnd},"${fuelName}",${colActual}${dataStart}:${colActual}${dataEnd})` } as unknown as string,
+        { f: `D${rowIdx}-E${rowIdx}` } as unknown as string,
+        { f: `IF(D${rowIdx}>0,F${rowIdx}/D${rowIdx},0)` } as unknown as string,
+      ]);
+    }
+
+    // Grand total row
+    const grandRowIdx = aoa.length + 1;
+    const fuelRowsEnd = grandRowIdx - 1;
+    aoa.push([
+      t('grandTotal'),
+      '',
+      '',
+      { f: `SUM(D${fuelRowsStart}:D${fuelRowsEnd})` } as unknown as string,
+      { f: `SUM(E${fuelRowsStart}:E${fuelRowsEnd})` } as unknown as string,
+      { f: `D${grandRowIdx}-E${grandRowIdx}` } as unknown as string,
+      { f: `IF(D${grandRowIdx}>0,F${grandRowIdx}/D${grandRowIdx},0)` } as unknown as string,
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Auto column widths
+    const colWidths = headers.map((h, i) => {
+      let maxLen = String(h).length;
+      for (const row of dataRows) {
+        const val = String(row[i] ?? '');
+        if (val.length > maxLen) maxLen = val.length;
+      }
+      return { wch: Math.min(Math.max(maxLen + 2, 10), 40) };
+    });
+    ws['!cols'] = colWidths;
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Kunlik kiritish');
     const fileName = `entries_${filterDateFrom}_to_${filterDateTo}${filterDept ? `_${filterDept.slice(0, 8)}` : ''}.xlsx`;
@@ -619,6 +709,42 @@ export function EntriesPage() {
                   </tr>
                 ))}
             </tbody>
+            {entries.length > 0 && (
+              <tfoot className="border-t-2 border-border bg-muted/40">
+                {/* Per-fuel total rows */}
+                {fuelTotals.perFuel.map((ft) => (
+                  <tr key={`total-${ft.fuelTypeId}`} className="border-b border-border font-semibold">
+                    <td className="px-3 py-2.5 text-foreground" colSpan={4}>
+                      {t('total')} {ft.fuelName}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-foreground">{fmtNum(ft.limit)}</td>
+                    <td className="px-3 py-2.5 text-right text-foreground" colSpan={4}>{fmtNum(ft.actual)}</td>
+                    <td className={`px-3 py-2.5 text-right ${ft.saved >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {ft.saved > 0 ? '+' : ''}{fmtNum(ft.saved)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right ${ft.efficiency >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {fmtPct(ft.efficiency)}
+                    </td>
+                    <td className="px-3 py-2.5" colSpan={2} />
+                  </tr>
+                ))}
+                {/* Grand total row */}
+                <tr className="border-t-2 border-border bg-muted/70 font-bold">
+                  <td className="px-3 py-3 text-foreground" colSpan={4}>
+                    {t('grandTotal')}
+                  </td>
+                  <td className="px-3 py-3 text-right text-foreground">{fmtNum(fuelTotals.grand.limit)}</td>
+                  <td className="px-3 py-3 text-right text-foreground" colSpan={4}>{fmtNum(fuelTotals.grand.actual)}</td>
+                  <td className={`px-3 py-3 text-right ${fuelTotals.grand.saved >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {fuelTotals.grand.saved > 0 ? '+' : ''}{fmtNum(fuelTotals.grand.saved)}
+                  </td>
+                  <td className={`px-3 py-3 text-right ${fuelTotals.grand.efficiency >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {fmtPct(fuelTotals.grand.efficiency)}
+                  </td>
+                  <td className="px-3 py-3" colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

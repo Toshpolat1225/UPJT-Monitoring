@@ -123,6 +123,9 @@ const dict = {
   allowed: { uz: "Ruxsat berilgan", ru: "Разрешён" },
   disabled: { uz: "O'chirilgan", ru: "Отключён" },
   dateRangeError: { uz: "Sana (gacha) Sana (dan) dan kichik bo'lmasin", ru: "Дата (до) не может быть меньше даты (от)" },
+  grandTotal: { uz: "UMUMIY JAMI", ru: "ОБЩИЙ ИТОГ" },
+  tejalgan: { uz: "Tejalgan", ru: "Экономия" },
+  tejamkorlik: { uz: "Tejamkorlik %", ru: "Экономность %" },
 } as const;
 
 export type DictKey = keyof typeof dict;
