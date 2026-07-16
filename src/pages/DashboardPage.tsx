@@ -88,11 +88,11 @@ export function DashboardPage() {
   const now = new Date();
   const [dateFrom, setDateFrom] = useState<string>(() => {
     const d = new Date(now.getFullYear(), now.getMonth(), 1);
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
   const [dateTo, setDateTo] = useState<string>(() => {
     const d = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
 
   // Derive year/month from dateTo for monthly limits lookup
