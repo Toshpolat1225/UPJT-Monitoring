@@ -48,6 +48,7 @@ const PAGE_SIZE = 1000;
 
 /** Percentage of fact vs limit; 0 if limit <= 0. */
 const safePct = (fact: number, lim: number): number => (lim > 0 ? (fact / lim) * 100 : 0);
+const ceilPct = (fact: number, lim: number): number => (lim > 0 ? Math.ceil((fact / lim) * 100) : 0);
 
 /** Format a number with ru-RU grouping (rounded). */
 const fmt = (n: number): string => (Number.isFinite(n) ? Math.round(n).toLocaleString('ru-RU') : '0');
@@ -104,15 +105,17 @@ export function DashboardPage() {
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
   const [limits, setLimits] = useState<MonthlyLimit[]>([]);
   const [entries, setEntries] = useState<DailyEntry[]>([]);
-  const [monthlyEntries, setMonthlyEntries] = useState<DailyEntry[]>([]);
-  const [monthlyLimits, setMonthlyLimits] = useState<MonthlyLimit[]>([]);
 
-  // Local UI-only state for breakdown table date pickers (not wired to data)
+  // Block 1 ("Kecha" group) state
   const [dailyDateFrom, setDailyDateFrom] = useState<string>(() => {
     const now = new Date();
     return dateStr(now.getFullYear(), now.getMonth(), 1);
   });
   const [dailyDateTo, setDailyDateTo] = useState<string>(() => yesterdayStr());
+  const [block1Entries, setBlock1Entries] = useState<DailyEntry[]>([]);
+  const [block1Limits, setBlock1Limits] = useState<MonthlyLimit[]>([]);
+
+  // Block 2 ("Oy boshidan" group) state
   const [periodDateFrom, setPeriodDateFrom] = useState<string>(() => {
     const now = new Date();
     return dateStr(now.getFullYear(), now.getMonth(), 1);
@@ -121,6 +124,8 @@ export function DashboardPage() {
     const now = new Date();
     return dateStr(now.getFullYear(), now.getMonth(), daysInMonth(now.getFullYear(), now.getMonth()));
   });
+  const [block2Entries, setBlock2Entries] = useState<DailyEntry[]>([]);
+  const [block2Limits, setBlock2Limits] = useState<MonthlyLimit[]>([]);
   const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
@@ -179,40 +184,6 @@ export function DashboardPage() {
         page += 1;
       }
       setEntries(all);
-
-      // Always load current-month data for the breakdown table (independent of date filter)
-      const cmY = new Date().getFullYear();
-      const cmM = new Date().getMonth();
-      const cmFrom = dateStr(cmY, cmM, 1);
-      const cmTo = dateStr(cmY, cmM, daysInMonth(cmY, cmM));
-
-      const { data: monthlyLimData } = await supabase
-        .from('monthly_limits')
-        .select('*')
-        .eq('year', cmY)
-        .eq('month', cmM + 1);
-      setMonthlyLimits((monthlyLimData as MonthlyLimit[]) ?? []);
-
-      const monthlyAll: DailyEntry[] = [];
-      let mPage = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const mFromIdx = mPage * PAGE_SIZE;
-        const mToIdx = mFromIdx + PAGE_SIZE - 1;
-        const { data: mData, error: mError } = await supabase
-          .from('daily_entries')
-          .select('*')
-          .gte('entry_date', cmFrom)
-          .lte('entry_date', cmTo)
-          .order('entry_date', { ascending: true })
-          .range(mFromIdx, mToIdx);
-        if (mError) break;
-        const mRows = (mData as DailyEntry[]) ?? [];
-        monthlyAll.push(...mRows);
-        if (mRows.length < PAGE_SIZE) break;
-        mPage += 1;
-      }
-      setMonthlyEntries(monthlyAll);
     } finally {
       setLoading(false);
     }
@@ -240,6 +211,80 @@ export function DashboardPage() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  // --------------------------------------------------------
+  // Block 1 data loading ("Kecha" group — dailyDateFrom/dailyDateTo)
+  // --------------------------------------------------------
+  useEffect(() => {
+    const load = async () => {
+      const fromY = parseInt(dailyDateFrom.slice(0, 4));
+      const fromM = parseInt(dailyDateFrom.slice(5, 7));
+      const { data: limData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', fromY)
+        .eq('month', fromM);
+      setBlock1Limits((limData as MonthlyLimit[]) ?? []);
+      const all: DailyEntry[] = [];
+      let page = 0;
+      while (true) {
+        const fromIdx = page * PAGE_SIZE;
+        const toIdx = fromIdx + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('daily_entries')
+          .select('*')
+          .gte('entry_date', dailyDateFrom)
+          .lte('entry_date', dailyDateTo)
+          .order('entry_date', { ascending: true })
+          .range(fromIdx, toIdx);
+        if (error) break;
+        const rows = (data as DailyEntry[]) ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE_SIZE) break;
+        page += 1;
+      }
+      setBlock1Entries(all);
+    };
+    if (dailyDateTo >= dailyDateFrom) load();
+    else setBlock1Entries([]);
+  }, [dailyDateFrom, dailyDateTo]);
+
+  // --------------------------------------------------------
+  // Block 2 data loading ("Oy boshidan" group — periodDateFrom/periodDateTo)
+  // --------------------------------------------------------
+  useEffect(() => {
+    const load = async () => {
+      const fromY = parseInt(periodDateFrom.slice(0, 4));
+      const fromM = parseInt(periodDateFrom.slice(5, 7));
+      const { data: limData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', fromY)
+        .eq('month', fromM);
+      setBlock2Limits((limData as MonthlyLimit[]) ?? []);
+      const all: DailyEntry[] = [];
+      let page = 0;
+      while (true) {
+        const fromIdx = page * PAGE_SIZE;
+        const toIdx = fromIdx + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('daily_entries')
+          .select('*')
+          .gte('entry_date', periodDateFrom)
+          .lte('entry_date', periodDateTo)
+          .order('entry_date', { ascending: true })
+          .range(fromIdx, toIdx);
+        if (error) break;
+        const rows = (data as DailyEntry[]) ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE_SIZE) break;
+        page += 1;
+      }
+      setBlock2Entries(all);
+    };
+    if (periodDateTo >= periodDateFrom) load();
+    else setBlock2Entries([]);
+  }, [periodDateFrom, periodDateTo]);
 
   // --------------------------------------------------------
   // Derived: date window
@@ -375,66 +420,89 @@ export function DashboardPage() {
   );
 
   // --------------------------------------------------------
-  // Derived: current-month data (always uses current month, for breakdown table only)
+  // Derived: Block 1 ("Kecha" group) — dailyDateFrom / dailyDateTo
   // --------------------------------------------------------
-  const cmYear = useMemo(() => new Date().getFullYear(), []);
-  const cmMonth = useMemo(() => new Date().getMonth(), []);
-  const cmDim = useMemo(() => daysInMonth(cmYear, cmMonth), [cmYear, cmMonth]);
-  const cmMtdCutoff = useMemo(() => yesterdayStr(), []);
-  const cmYesterdayDate = useMemo(() => yesterdayStr(), []);
-  const cmSelectedDays = useMemo(() => {
-    const start = new Date(dateStr(cmYear, cmMonth, 1) + 'T00:00:00');
-    const end = new Date(cmMtdCutoff + 'T00:00:00');
+  const block1Valid = dailyDateTo >= dailyDateFrom;
+  const block1Year = useMemo(() => parseInt(dailyDateFrom.slice(0, 4)), [dailyDateFrom]);
+  const block1Month = useMemo(() => parseInt(dailyDateFrom.slice(5, 7)), [dailyDateFrom]); // 1-based
+  const block1Dim = useMemo(() => daysInMonth(block1Year, block1Month - 1), [block1Year, block1Month]);
+  const block1Days = useMemo(() => {
+    const start = new Date(dailyDateFrom + 'T00:00:00');
+    const end = new Date(dailyDateTo + 'T00:00:00');
     return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-  }, [cmYear, cmMonth, cmMtdCutoff]);
+  }, [dailyDateFrom, dailyDateTo]);
 
-  const monthlyLimitMap = useMemo(() => {
+  const block1LimitMap = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const l of monthlyLimits) {
+    for (const l of block1Limits) {
       const key = `${l.department_id}|${l.section_id ?? ''}|${l.fuel_type_id}`;
       m[key] = Number(l.limit_value) || 0;
     }
     return m;
-  }, [monthlyLimits]);
+  }, [block1Limits]);
 
-  const getLimitMonthly = useCallback(
-    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
-      monthlyLimitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
-    [monthlyLimitMap],
-  );
-
-  const consumptionByDayMonthly = useMemo(() => {
-    const m: Record<string, Record<string, number>> = {};
-    for (const e of monthlyEntries) {
+  const block1Consumption = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of block1Entries) {
       const key = `${e.department_id}|${e.section_id ?? ''}|${e.fuel_type_id}`;
-      (m[key] ??= {})[e.entry_date] = (m[key]?.[e.entry_date] ?? 0) + (Number(e.consumption) || 0);
+      m[key] = (m[key] ?? 0) + (Number(e.consumption) || 0);
     }
     return m;
-  }, [monthlyEntries]);
+  }, [block1Entries]);
 
-  const getYesterdayMonthly = useCallback(
+  const getBlock1Limit = useCallback(
     (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
-      consumptionByDayMonthly[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`]?.[cmYesterdayDate] ?? 0,
-    [consumptionByDayMonthly, cmYesterdayDate],
+      (block1LimitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0) / block1Dim * block1Days,
+    [block1LimitMap, block1Dim, block1Days],
   );
 
-  const getMtdMonthly = useCallback(
-    (deptId: string, sectionId: string | null, fuelTypeId: string): number => {
-      const dayMap = consumptionByDayMonthly[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`];
-      if (!dayMap) return 0;
-      let sum = 0;
-      for (const [d, v] of Object.entries(dayMap)) {
-        if (d <= cmMtdCutoff) sum += v;
-      }
-      return sum;
-    },
-    [consumptionByDayMonthly, cmMtdCutoff],
+  const getBlock1Fact = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      block1Consumption[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
+    [block1Consumption],
   );
 
-  const getSelectedLimitMonthly = useCallback(
+  // --------------------------------------------------------
+  // Derived: Block 2 ("Oy boshidan" group) — periodDateFrom / periodDateTo
+  // --------------------------------------------------------
+  const block2Valid = periodDateTo >= periodDateFrom;
+  const block2Year = useMemo(() => parseInt(periodDateFrom.slice(0, 4)), [periodDateFrom]);
+  const block2Month = useMemo(() => parseInt(periodDateFrom.slice(5, 7)), [periodDateFrom]); // 1-based
+  const block2Dim = useMemo(() => daysInMonth(block2Year, block2Month - 1), [block2Year, block2Month]);
+  const block2Days = useMemo(() => {
+    const start = new Date(periodDateFrom + 'T00:00:00');
+    const end = new Date(periodDateTo + 'T00:00:00');
+    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  }, [periodDateFrom, periodDateTo]);
+
+  const block2LimitMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of block2Limits) {
+      const key = `${l.department_id}|${l.section_id ?? ''}|${l.fuel_type_id}`;
+      m[key] = Number(l.limit_value) || 0;
+    }
+    return m;
+  }, [block2Limits]);
+
+  const block2Consumption = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of block2Entries) {
+      const key = `${e.department_id}|${e.section_id ?? ''}|${e.fuel_type_id}`;
+      m[key] = (m[key] ?? 0) + (Number(e.consumption) || 0);
+    }
+    return m;
+  }, [block2Entries]);
+
+  const getBlock2Limit = useCallback(
     (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
-      (getLimitMonthly(deptId, sectionId, fuelTypeId) / cmDim) * cmSelectedDays,
-    [getLimitMonthly, cmDim, cmSelectedDays],
+      (block2LimitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0) / block2Dim * block2Days,
+    [block2LimitMap, block2Dim, block2Days],
+  );
+
+  const getBlock2Fact = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      block2Consumption[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
+    [block2Consumption],
   );
 
   // --------------------------------------------------------
@@ -514,65 +582,59 @@ export function DashboardPage() {
     fuelCode: string;
     unit: string;
     type: 'dept-header' | 'data' | 'total';
-    monthlyLimit: number;
-    yesterday: number;
-    dailyLimit: number;
-    dailyFact: number;
-    selectedLimit: number;
-    mtdFact: number;
+    block1Limit: number;
+    block1Fact: number;
+    block2Limit: number;
+    block2Fact: number;
   }
 
   const breakdownRows = useMemo<BreakdownRow[]>(() => {
     const rows: BreakdownRow[] = [];
-    const totalByFuel: Record<string, { monthly: number; yesterday: number; mtdFact: number }> = {};
+    const totalByFuel: Record<string, { b1Limit: number; b1Fact: number; b2Limit: number; b2Fact: number }> = {};
     for (const ft of orderedFuels) {
-      totalByFuel[ft.id] = { monthly: 0, yesterday: 0, mtdFact: 0 };
+      totalByFuel[ft.id] = { b1Limit: 0, b1Fact: 0, b2Limit: 0, b2Fact: 0 };
     }
 
     for (const d of realDepartments) {
-      // Skip department header if no fuel types are enabled for this department
       const deptHasAnyFuel = orderedFuels.some((ft) => isFuelEnabled(d.id, ft.id));
       if (!deptHasAnyFuel) continue;
 
       rows.push({
         id: `dept-${d.id}`, label: ln(d), fuelCode: '', unit: '',
         type: 'dept-header',
-        monthlyLimit: 0, yesterday: 0, dailyLimit: 0, dailyFact: 0, selectedLimit: 0, mtdFact: 0,
+        block1Limit: 0, block1Fact: 0, block2Limit: 0, block2Fact: 0,
       });
 
       for (const ft of orderedFuels) {
         if (!isFuelEnabled(d.id, ft.id)) continue;
-        const ml = getLimitMonthly(d.id, null, ft.id);
-        const yest = getYesterdayMonthly(d.id, null, ft.id);
-        const dl = ml / cmDim;
-        const sl = dl * cmSelectedDays;
-        const mtdF = getMtdMonthly(d.id, null, ft.id);
+        const b1L = block1Valid ? getBlock1Limit(d.id, null, ft.id) : 0;
+        const b1F = block1Valid ? getBlock1Fact(d.id, null, ft.id) : 0;
+        const b2L = block2Valid ? getBlock2Limit(d.id, null, ft.id) : 0;
+        const b2F = block2Valid ? getBlock2Fact(d.id, null, ft.id) : 0;
         rows.push({
           id: `dept-${d.id}-${ft.id}`, label: ln(ft), fuelCode: ft.code, unit: ft.unit,
           type: 'data',
-          monthlyLimit: ml, yesterday: yest, dailyLimit: dl, dailyFact: yest, selectedLimit: sl, mtdFact: mtdF,
+          block1Limit: b1L, block1Fact: b1F, block2Limit: b2L, block2Fact: b2F,
         });
-        totalByFuel[ft.id].monthly += ml;
-        totalByFuel[ft.id].yesterday += yest;
-        totalByFuel[ft.id].mtdFact += mtdF;
+        totalByFuel[ft.id].b1Limit += b1L;
+        totalByFuel[ft.id].b1Fact += b1F;
+        totalByFuel[ft.id].b2Limit += b2L;
+        totalByFuel[ft.id].b2Fact += b2F;
       }
     }
 
     for (const ft of orderedFuels) {
-      // Only show total row if at least one department has this fuel enabled
       if (!realDepartments.some((d) => isFuelEnabled(d.id, ft.id))) continue;
       const tot = totalByFuel[ft.id];
-      const dl = tot.monthly / cmDim;
       rows.push({
         id: `total-${ft.id}`, label: `${ln(ft)} (${t('total')})`, fuelCode: ft.code, unit: ft.unit,
         type: 'total',
-        monthlyLimit: tot.monthly, yesterday: tot.yesterday, dailyLimit: dl, dailyFact: tot.yesterday,
-        selectedLimit: dl * cmSelectedDays, mtdFact: tot.mtdFact,
+        block1Limit: tot.b1Limit, block1Fact: tot.b1Fact, block2Limit: tot.b2Limit, block2Fact: tot.b2Fact,
       });
     }
 
     return rows;
-  }, [realDepartments, orderedFuels, getLimitMonthly, getYesterdayMonthly, getMtdMonthly, cmDim, cmSelectedDays, ln, t, isFuelEnabled]);
+  }, [realDepartments, orderedFuels, getBlock1Limit, getBlock1Fact, getBlock2Limit, getBlock2Fact, block1Valid, block2Valid, ln, t, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: warnings — departments at >=80% of their MTD limit
@@ -901,6 +963,9 @@ export function DashboardPage() {
                             />
                           </div>
                         </div>
+                        {!block1Valid && (
+                          <span className="text-[10px] font-medium text-destructive">{t('dateRangeError')}</span>
+                        )}
                       </div>
                     </th>
                     <th colSpan={4} className="px-3 py-2.5 text-center font-semibold text-foreground">
@@ -926,6 +991,9 @@ export function DashboardPage() {
                             />
                           </div>
                         </div>
+                        {!block2Valid && (
+                          <span className="text-[10px] font-medium text-destructive">{t('dateRangeError')}</span>
+                        )}
                       </div>
                     </th>
                   </tr>
@@ -975,8 +1043,10 @@ export function DashboardPage() {
                       );
                     }
 
-                    const mtdDev = row.mtdFact - row.selectedLimit;
-                    const mtdPct = safePct(row.mtdFact, row.selectedLimit);
+                    const b1Dev = row.block1Fact - row.block1Limit;
+                    const b1Pct = ceilPct(row.block1Fact, row.block1Limit);
+                    const b2Dev = row.block2Fact - row.block2Limit;
+                    const b2Pct = ceilPct(row.block2Fact, row.block2Limit);
                     const isTotal = row.type === 'total';
                     const style = FUEL_STYLES[row.fuelCode] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
 
@@ -997,25 +1067,25 @@ export function DashboardPage() {
                           </span>
                         </td>
                         <td className="border-l border-border px-3 py-2.5 text-right text-foreground">
-                          {fmt(row.dailyLimit)}
+                          {fmt(row.block1Limit)}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-foreground">{fmt(row.dailyFact)}</td>
-                        <td className={`px-3 py-2.5 text-right ${devCls(row.dailyFact - row.dailyLimit)}`}>
-                          {row.dailyFact - row.dailyLimit > 0 ? '+' : ''}
-                          {fmt(row.dailyFact - row.dailyLimit)}
+                        <td className="px-3 py-2.5 text-right text-foreground">{fmt(row.block1Fact)}</td>
+                        <td className={`px-3 py-2.5 text-right ${devCls(b1Dev)}`}>
+                          {b1Dev > 0 ? '+' : ''}
+                          {fmt(b1Dev)}
                         </td>
-                        <td className={`border-r border-border px-3 py-2.5 text-right ${pctCls(safePct(row.dailyFact, row.dailyLimit))}`}>
-                          {fmtPct(safePct(row.dailyFact, row.dailyLimit))}
+                        <td className={`border-r border-border px-3 py-2.5 text-right ${pctCls(b1Pct)}`}>
+                          {fmtPct(b1Pct)}
                         </td>
                         <td className="border-l border-border px-3 py-2.5 text-right text-foreground">
-                          {fmt(row.selectedLimit)}
+                          {fmt(row.block2Limit)}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-foreground">{fmt(row.mtdFact)}</td>
-                        <td className={`px-3 py-2.5 text-right ${devCls(mtdDev)}`}>
-                          {mtdDev > 0 ? '+' : ''}
-                          {fmt(mtdDev)}
+                        <td className="px-3 py-2.5 text-right text-foreground">{fmt(row.block2Fact)}</td>
+                        <td className={`px-3 py-2.5 text-right ${devCls(b2Dev)}`}>
+                          {b2Dev > 0 ? '+' : ''}
+                          {fmt(b2Dev)}
                         </td>
-                        <td className={`px-3 py-2.5 text-right ${pctCls(mtdPct)}`}>{fmtPct(mtdPct)}</td>
+                        <td className={`px-3 py-2.5 text-right ${pctCls(b2Pct)}`}>{fmtPct(b2Pct)}</td>
                       </tr>
                     );
                   })}

@@ -122,6 +122,7 @@ const dict = {
   fuelMatrixHint: { uz: "Sex uchun ruxsat etilgan yoqilg'i turlarini sozlang", ru: "Настройте разрешённые виды топлива для цехов" },
   allowed: { uz: "Ruxsat berilgan", ru: "Разрешён" },
   disabled: { uz: "O'chirilgan", ru: "Отключён" },
+  dateRangeError: { uz: "Sana (gacha) Sana (dan) dan kichik bo'lmasin", ru: "Дата (до) не может быть меньше даты (от)" },
 } as const;
 
 export type DictKey = keyof typeof dict;
