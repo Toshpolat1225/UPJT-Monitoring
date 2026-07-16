@@ -880,7 +880,7 @@ export function DashboardPage() {
                       className="border-r border-border px-3 py-2.5 text-center font-semibold text-foreground"
                     >
                       <div className="flex flex-col items-center gap-1">
-                        <span className="text-xs font-semibold text-muted-foreground">{t('daily')}</span>
+                        <span className="text-xs font-semibold text-muted-foreground">{t('period')}</span>
                         <div className="flex items-center gap-2">
                           <div className="flex flex-col items-start">
                             <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateFrom')}</label>
