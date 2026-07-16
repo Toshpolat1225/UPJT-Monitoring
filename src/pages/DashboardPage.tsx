@@ -561,6 +561,63 @@ export function DashboardPage() {
                       <Bar dataKey="fact" name={t('fact')} fill={style.fact} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="border-r border-border px-3 py-2 text-left font-semibold text-foreground">
+                            {t('department')}
+                          </th>
+                          <th className="border-r border-border px-3 py-2 text-right font-semibold text-foreground">
+                            {t('fact')}
+                          </th>
+                          <th className="border-r border-border px-3 py-2 text-right font-semibold text-foreground">
+                            {t('limit')}
+                          </th>
+                          <th className="px-3 py-2 text-right font-semibold text-foreground">
+                            {t('economy')}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chartData.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                              {t('noData')}
+                            </td>
+                          </tr>
+                        )}
+                        {chartData.map((row) => {
+                          const saved = row.limit - row.fact;
+                          return (
+                            <tr key={row.name} className="border-b border-border transition hover:bg-muted/30">
+                              <td className="border-r border-border px-3 py-2 text-foreground">{row.name}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(row.fact)}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(row.limit)}</td>
+                              <td className={`px-3 py-2 text-right ${devCls(saved)}`}>
+                                {saved > 0 ? '+' : ''}{fmt(saved)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {chartData.length > 0 && (() => {
+                          const totalFact = chartData.reduce((s, r) => s + r.fact, 0);
+                          const totalLimit = chartData.reduce((s, r) => s + r.limit, 0);
+                          const totalSaved = totalLimit - totalFact;
+                          return (
+                            <tr className="bg-muted/60 font-bold">
+                              <td className="border-r border-border px-3 py-2 text-foreground">{t('total')}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(totalFact)}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(totalLimit)}</td>
+                              <td className={`px-3 py-2 text-right ${devCls(totalSaved)}`}>
+                                {totalSaved > 0 ? '+' : ''}{fmt(totalSaved)}
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               );
             })}

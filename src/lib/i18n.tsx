@@ -63,6 +63,7 @@ const dict = {
   all: { uz: "Hammasi", ru: "Hammasi" },
   noData: { uz: "Ma'lumot yo'q", ru: "Ma'lumot yo'q" },
   saved: { uz: "Saqlandi", ru: "Saqlandi" },
+  economy: { uz: "Tejalgan", ru: "Экономия" },
   error: { uz: "Xato", ru: "Xato" },
   reportingPeriod: { uz: "Hisobot davri: kecha 07:00 – bugun 07:00", ru: "Hisobot davri: kecha 07:00 – bugun 07:00" },
   yesterday: { uz: "Kecha", ru: "Kecha" },
