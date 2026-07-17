@@ -56,10 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        (async () => {
-          await loadProfile(s.user.id);
-          if (mounted) setLoading(false);
-        })();
+        loadProfile(s.user.id).finally(() => { if (mounted) setLoading(false); });
       } else {
         setProfile(null);
         setRoles([]);
