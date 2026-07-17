@@ -1,119 +1,1144 @@
-import { useEffect, useState } from 'react'
-import { supabase, Department, FuelType, Vehicle, DailyEntry } from '../lib/supabase'
-import { uz } from '../lib/i18n'
-import { LoadingSpinner } from '../components/UI'
-import { IconTruck, IconLayers, IconFuel, IconCalendar } from '../components/Icons'
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import { AlertTriangle, TrendingUp, Fuel, Gauge } from 'lucide-react';
+import { supabase, type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry, fetchEnabledFuelKeys } from '../lib/supabase';
+import { useI18n, formatUnit } from '../lib/i18n';
+import { useAuth } from '../context/AuthContext';
+
+// ============================================================
+// Types
+// ============================================================
+
+interface FuelStyle {
+  limit: string;
+  fact: string;
+}
+
+// ============================================================
+// Constants
+// ============================================================
+
+const FUEL_ORDER = ['DIESEL', 'PETROL', 'SPG'] as const;
+type FuelCode = (typeof FUEL_ORDER)[number];
+
+const FUEL_STYLES: Record<string, FuelStyle> = {
+  DIESEL: { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' },
+  PETROL: { limit: 'hsl(30 25% 70%)', fact: 'hsl(30 90% 55%)' },
+  SPG: { limit: 'hsl(160 25% 70%)', fact: 'hsl(160 60% 45%)' },
+};
+
+
+
+const PAGE_SIZE = 1000;
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Percentage of fact vs limit; 0 if limit <= 0. */
+const safePct = (fact: number, lim: number): number => (lim > 0 ? (fact / lim) * 100 : 0);
+const ceilPct = (fact: number, lim: number): number => (lim > 0 ? Math.ceil((fact / lim) * 100) : 0);
+
+/** Format a number with ru-RU grouping (rounded). */
+const fmt = (n: number): string => (Number.isFinite(n) ? Math.round(n).toLocaleString('ru-RU') : '0');
+
+/** Format a percentage, or em-dash if not finite / non-positive. */
+const fmtPct = (n: number): string => (Number.isFinite(n) && n > 0 ? `${Math.round(n)}%` : '—');
+
+/** Number of days in a given (year, month) where month is 0-indexed. */
+const daysInMonth = (year: number, month: number): number => new Date(year, month + 1, 0).getDate();
+
+/** YYYY-MM-DD for a (year, month, day). */
+const dateStr = (year: number, month: number, day: number): string => {
+  const d = String(day).padStart(2, '0');
+  const m = String(month + 1).padStart(2, '0');
+  return `${year}-${m}-${d}`;
+};
+
+/** Yesterday's date string (YYYY-MM-DD). */
+const yesterdayStr = (): string => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
+
+/** Today's date string (YYYY-MM-DD). */
+const todayStr = (): string => new Date().toISOString().slice(0, 10);
+
+// ============================================================
+// Component
+// ============================================================
 
 export function DashboardPage() {
-  const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({ vehicles: 0, departments: 0, fuelTypes: 0, entries: 0 })
-  const [recentEntries, setRecentEntries] = useState<DailyEntry[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [fuelTypes, setFuelTypes] = useState<FuelType[]>([])
-  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const { t, ln, lang } = useI18n();
+
+  // --------------------------------------------------------
+  // State
+  // --------------------------------------------------------
+  const now = new Date();
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    const d = new Date(now.getFullYear(), now.getMonth(), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [dateTo, setDateTo] = useState<string>(() => {
+    const d = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+
+  // Derive year/month from dateTo for monthly limits lookup
+  const year = useMemo(() => new Date(dateTo + 'T00:00:00').getFullYear(), [dateTo]);
+  const month = useMemo(() => new Date(dateTo + 'T00:00:00').getMonth(), [dateTo]);
+
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
+  const [limits, setLimits] = useState<MonthlyLimit[]>([]);
+  const [entries, setEntries] = useState<DailyEntry[]>([]);
+
+  // Block 1 ("Kecha" group) state
+  const [dailyDateFrom, setDailyDateFrom] = useState<string>(() => {
+    const now = new Date();
+    return dateStr(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [dailyDateTo, setDailyDateTo] = useState<string>(() => yesterdayStr());
+  const [block1Entries, setBlock1Entries] = useState<DailyEntry[]>([]);
+  const [block1Limits, setBlock1Limits] = useState<MonthlyLimit[]>([]);
+
+  // Block 2 ("Oy boshidan" group) state
+  const [periodDateFrom, setPeriodDateFrom] = useState<string>(() => {
+    const now = new Date();
+    return dateStr(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [periodDateTo, setPeriodDateTo] = useState<string>(() => {
+    const now = new Date();
+    return dateStr(now.getFullYear(), now.getMonth(), daysInMonth(now.getFullYear(), now.getMonth()));
+  });
+  const [block2Entries, setBlock2Entries] = useState<DailyEntry[]>([]);
+  const [block2Limits, setBlock2Limits] = useState<MonthlyLimit[]>([]);
+  const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
+
+  const [loading, setLoading] = useState(true);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // --------------------------------------------------------
+  // Load reference data once
+  // --------------------------------------------------------
+  useEffect(() => {
+    (async () => {
+      const [{ data: depts }, { data: secs }, { data: fuels }, fuelKeys] = await Promise.all([
+        supabase.from('departments').select('*').order('code'),
+        supabase.from('sections').select('*').order('name_ru'),
+        supabase.from('fuel_types').select('*').order('code'),
+        fetchEnabledFuelKeys(),
+      ]);
+      setDepartments((depts as Department[]) ?? []);
+      setSections((secs as Section[]) ?? []);
+      setFuelTypes((fuels as FuelType[]) ?? []);
+      setEnabledFuels(fuelKeys);
+    })();
+  }, []);
+
+  // --------------------------------------------------------
+  // Load limits + entries (depends on year/month + refreshTrigger)
+  // --------------------------------------------------------
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Monthly limits for the period derived from dateTo
+      const { data: limData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', year)
+        .eq('month', month + 1);
+      setLimits((limData as MonthlyLimit[]) ?? []);
+
+      // Daily entries — paginated, filtered to the selected date range
+      const all: DailyEntry[] = [];
+      let page = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('daily_entries')
+          .select('*')
+          .gte('entry_date', dateFrom)
+          .lte('entry_date', dateTo)
+          .order('entry_date', { ascending: true })
+          .range(from, to);
+        if (error) break;
+        const rows = (data as DailyEntry[]) ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE_SIZE) break;
+        page += 1;
+      }
+      setEntries(all);
+    } finally {
+      setLoading(false);
+    }
+  }, [year, month, dateFrom, dateTo]);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const [{ data: vData }, { data: dData }, { data: fData }, { data: eData }] = await Promise.all([
-          supabase.from('vehicles').select('*'),
-          supabase.from('departments').select('*'),
-          supabase.from('fuel_types').select('*'),
-          supabase.from('daily_entries').select('*').order('created_at', { ascending: false }).limit(10),
-        ])
+    loadData();
+  }, [loadData, refreshTrigger]);
 
-        setVehicles(vData as Vehicle[] || [])
-        setDepartments(dData as Department[] || [])
-        setFuelTypes(fData as FuelType[] || [])
-        setRecentEntries(eData as DailyEntry[] || [])
-        setStats({
-          vehicles: vData?.length || 0,
-          departments: dData?.length || 0,
-          fuelTypes: fData?.length || 0,
-          entries: (eData as DailyEntry[])?.length || 0,
-        })
-      } catch {
-        // ignore
-      } finally {
-        setLoading(false)
+  // --------------------------------------------------------
+  // Realtime subscriptions — bump refreshTrigger on any change
+  // --------------------------------------------------------
+  useEffect(() => {
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_entries' }, () =>
+        setRefreshTrigger((n) => n + 1),
+      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_limits' }, () =>
+        setRefreshTrigger((n) => n + 1),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // --------------------------------------------------------
+  // Block 1 data loading ("Kecha" group — dailyDateFrom/dailyDateTo)
+  // --------------------------------------------------------
+  useEffect(() => {
+    const load = async () => {
+      const fromY = parseInt(dailyDateFrom.slice(0, 4));
+      const fromM = parseInt(dailyDateFrom.slice(5, 7));
+      const { data: limData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', fromY)
+        .eq('month', fromM);
+      setBlock1Limits((limData as MonthlyLimit[]) ?? []);
+      const all: DailyEntry[] = [];
+      let page = 0;
+      while (true) {
+        const fromIdx = page * PAGE_SIZE;
+        const toIdx = fromIdx + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('daily_entries')
+          .select('*')
+          .gte('entry_date', dailyDateFrom)
+          .lte('entry_date', dailyDateTo)
+          .order('entry_date', { ascending: true })
+          .range(fromIdx, toIdx);
+        if (error) break;
+        const rows = (data as DailyEntry[]) ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE_SIZE) break;
+        page += 1;
+      }
+      setBlock1Entries(all);
+    };
+    if (dailyDateTo >= dailyDateFrom) load();
+    else setBlock1Entries([]);
+  }, [dailyDateFrom, dailyDateTo]);
+
+  // --------------------------------------------------------
+  // Block 2 data loading ("Oy boshidan" group — periodDateFrom/periodDateTo)
+  // --------------------------------------------------------
+  useEffect(() => {
+    const load = async () => {
+      const fromY = parseInt(periodDateFrom.slice(0, 4));
+      const fromM = parseInt(periodDateFrom.slice(5, 7));
+      const { data: limData } = await supabase
+        .from('monthly_limits')
+        .select('*')
+        .eq('year', fromY)
+        .eq('month', fromM);
+      setBlock2Limits((limData as MonthlyLimit[]) ?? []);
+      const all: DailyEntry[] = [];
+      let page = 0;
+      while (true) {
+        const fromIdx = page * PAGE_SIZE;
+        const toIdx = fromIdx + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('daily_entries')
+          .select('*')
+          .gte('entry_date', periodDateFrom)
+          .lte('entry_date', periodDateTo)
+          .order('entry_date', { ascending: true })
+          .range(fromIdx, toIdx);
+        if (error) break;
+        const rows = (data as DailyEntry[]) ?? [];
+        all.push(...rows);
+        if (rows.length < PAGE_SIZE) break;
+        page += 1;
+      }
+      setBlock2Entries(all);
+    };
+    if (periodDateTo >= periodDateFrom) load();
+    else setBlock2Entries([]);
+  }, [periodDateFrom, periodDateTo]);
+
+  // --------------------------------------------------------
+  // Derived: date window
+  // --------------------------------------------------------
+  const isCurrentMonth = useMemo(() => {
+    const now = new Date();
+    return year === now.getFullYear() && month === now.getMonth();
+  }, [year, month]);
+
+  /** The "yesterday" cutoff for MTD aggregation. For the current month it's
+   *  yesterday; for past months it's the last day of that month. */
+  const mtdCutoff = useMemo(() => {
+    if (isCurrentMonth) return yesterdayStr();
+    return dateStr(year, month, daysInMonth(year, month));
+  }, [isCurrentMonth, year, month]);
+
+  /** The yesterday date string for the selected period (for the "Yesterday" column). */
+  const yesterdayDate = useMemo(() => {
+    if (isCurrentMonth) return yesterdayStr();
+    return dateStr(year, month, daysInMonth(year, month));
+  }, [isCurrentMonth, year, month]);
+
+  /** Number of selected calendar days in the date range. */
+  const selectedDays = useMemo(() => {
+    const start = new Date(dateFrom + 'T00:00:00');
+    const end = new Date(dateTo + 'T00:00:00');
+    if (end < start) return 0;
+    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  }, [dateFrom, dateTo]);
+
+  const dim = useMemo(() => daysInMonth(year, month), [year, month]);
+
+  // --------------------------------------------------------
+  // Derived: fuel type lookup (ordered DIESEL, PETROL, SPG)
+  // --------------------------------------------------------
+  const orderedFuels = useMemo(() => {
+    const byCode: Record<string, FuelType> = {};
+    for (const f of fuelTypes) byCode[f.code] = f;
+    const result: FuelType[] = [];
+    for (const code of FUEL_ORDER) {
+      const ft = byCode[code];
+      if (ft) result.push(ft);
+    }
+    // Include any fuel types not in FUEL_ORDER, appended after
+    for (const f of fuelTypes) {
+      if (!FUEL_ORDER.includes(f.code as FuelCode)) result.push(f);
+    }
+    return result;
+  }, [fuelTypes]);
+
+  const fuelById = useMemo(() => {
+    const m: Record<string, FuelType> = {};
+    for (const f of fuelTypes) m[f.id] = f;
+    return m;
+  }, [fuelTypes]);
+
+  // --------------------------------------------------------
+  // Derived: departments (non-total) + sections grouped
+  // --------------------------------------------------------
+  const realDepartments = useMemo(() => departments.filter((d) => !d.is_total), [departments]);
+
+  const sectionsByDept = useMemo(() => {
+    const m: Record<string, Section[]> = {};
+    for (const s of sections) {
+      (m[s.department_id] ??= []).push(s);
+    }
+    return m;
+  }, [sections]);
+
+  const isFuelEnabled = useCallback(
+    (deptId: string, fuelTypeId: string): boolean => enabledFuels.has(`${deptId}|${fuelTypeId}`),
+    [enabledFuels],
+  );
+
+  // --------------------------------------------------------
+  // Derived: limit lookup keyed by `${deptId}|${sectionId ?? ''}|${fuelTypeId}`
+  // --------------------------------------------------------
+  const limitMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of limits) {
+      const key = `${l.department_id}|${l.section_id ?? ''}|${l.fuel_type_id}`;
+      m[key] = Number(l.limit_value) || 0;
+    }
+    return m;
+  }, [limits]);
+
+  const getLimit = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      limitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
+    [limitMap],
+  );
+
+  // --------------------------------------------------------
+  // Derived: consumption aggregates
+  // --------------------------------------------------------
+  /** Key: `${deptId}|${sectionId ?? ''}|${fuelTypeId}` -> consumption sum for a date range. */
+  const consumptionByDay = useMemo(() => {
+    // Map: key -> Map<dateStr, consumption>
+    const m: Record<string, Record<string, number>> = {};
+    for (const e of entries) {
+      const key = `${e.department_id}|${e.section_id ?? ''}|${e.fuel_type_id}`;
+      (m[key] ??= {})[e.entry_date] = (m[key]?.[e.entry_date] ?? 0) + (Number(e.consumption) || 0);
+    }
+    return m;
+  }, [entries]);
+
+  /** Yesterday's consumption for a key. */
+  const getYesterday = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      consumptionByDay[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`]?.[yesterdayDate] ?? 0,
+    [consumptionByDay, yesterdayDate],
+  );
+
+  /** MTD consumption (up to and including mtdCutoff) for a key. */
+  const getMtd = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number => {
+      const dayMap = consumptionByDay[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`];
+      if (!dayMap) return 0;
+      let sum = 0;
+      for (const [d, v] of Object.entries(dayMap)) {
+        if (d <= mtdCutoff) sum += v;
+      }
+      return sum;
+    },
+    [consumptionByDay, mtdCutoff],
+  );
+
+  // Fix 4: selectedLimit = (monthlyLimit / dim) * selectedDays
+  const getSelectedLimit = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      (getLimit(deptId, sectionId, fuelTypeId) / dim) * selectedDays,
+    [getLimit, dim, selectedDays],
+  );
+
+  // --------------------------------------------------------
+  // Derived: Block 1 ("Kecha" group) — dailyDateFrom / dailyDateTo
+  // --------------------------------------------------------
+  const block1Valid = dailyDateTo >= dailyDateFrom;
+  const block1Year = useMemo(() => parseInt(dailyDateFrom.slice(0, 4)), [dailyDateFrom]);
+  const block1Month = useMemo(() => parseInt(dailyDateFrom.slice(5, 7)), [dailyDateFrom]); // 1-based
+  const block1Dim = useMemo(() => daysInMonth(block1Year, block1Month - 1), [block1Year, block1Month]);
+  const block1Days = useMemo(() => {
+    const start = new Date(dailyDateFrom + 'T00:00:00');
+    const end = new Date(dailyDateTo + 'T00:00:00');
+    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  }, [dailyDateFrom, dailyDateTo]);
+
+  const block1LimitMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of block1Limits) {
+      const key = `${l.department_id}|${l.section_id ?? ''}|${l.fuel_type_id}`;
+      m[key] = Number(l.limit_value) || 0;
+    }
+    return m;
+  }, [block1Limits]);
+
+  const block1Consumption = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of block1Entries) {
+      const key = `${e.department_id}|${e.section_id ?? ''}|${e.fuel_type_id}`;
+      m[key] = (m[key] ?? 0) + (Number(e.consumption) || 0);
+    }
+    return m;
+  }, [block1Entries]);
+
+  const getBlock1Limit = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      (block1LimitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0) / block1Dim * block1Days,
+    [block1LimitMap, block1Dim, block1Days],
+  );
+
+  const getBlock1Fact = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      block1Consumption[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
+    [block1Consumption],
+  );
+
+  // --------------------------------------------------------
+  // Derived: Block 2 ("Oy boshidan" group) — periodDateFrom / periodDateTo
+  // --------------------------------------------------------
+  const block2Valid = periodDateTo >= periodDateFrom;
+  const block2Year = useMemo(() => parseInt(periodDateFrom.slice(0, 4)), [periodDateFrom]);
+  const block2Month = useMemo(() => parseInt(periodDateFrom.slice(5, 7)), [periodDateFrom]); // 1-based
+  const block2Dim = useMemo(() => daysInMonth(block2Year, block2Month - 1), [block2Year, block2Month]);
+  const block2Days = useMemo(() => {
+    const start = new Date(periodDateFrom + 'T00:00:00');
+    const end = new Date(periodDateTo + 'T00:00:00');
+    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  }, [periodDateFrom, periodDateTo]);
+
+  const block2LimitMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of block2Limits) {
+      const key = `${l.department_id}|${l.section_id ?? ''}|${l.fuel_type_id}`;
+      m[key] = Number(l.limit_value) || 0;
+    }
+    return m;
+  }, [block2Limits]);
+
+  const block2Consumption = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of block2Entries) {
+      const key = `${e.department_id}|${e.section_id ?? ''}|${e.fuel_type_id}`;
+      m[key] = (m[key] ?? 0) + (Number(e.consumption) || 0);
+    }
+    return m;
+  }, [block2Entries]);
+
+  const getBlock2Limit = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      (block2LimitMap[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0) / block2Dim * block2Days,
+    [block2LimitMap, block2Dim, block2Days],
+  );
+
+  const getBlock2Fact = useCallback(
+    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
+      block2Consumption[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`] ?? 0,
+    [block2Consumption],
+  );
+
+  // --------------------------------------------------------
+  // Derived: bar chart data per fuel type — Limit vs Fact by department
+  // --------------------------------------------------------
+  const barDataByFuel = useMemo(() => {
+    const map: Record<string, { name: string; limit: number; fact: number }[]> = {};
+    for (const ft of orderedFuels) {
+      map[ft.id] = realDepartments
+        .filter((d) => isFuelEnabled(d.id, ft.id))
+        .map((d) => {
+          const lim = getSelectedLimit(d.id, null, ft.id);
+          const fact = getMtd(d.id, null, ft.id);
+          return { name: ln(d), limit: Math.round(lim), fact: Math.round(fact) };
+        });
+    }
+    return map;
+  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled]);
+
+  // --------------------------------------------------------
+  // Derived: fuel type summary — per fuel independent data (own scale)
+  // --------------------------------------------------------
+  const fuelSummary = useMemo(() => {
+    return orderedFuels.map((ft) => {
+      let lim = 0;
+      let fact = 0;
+      for (const d of realDepartments) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
+        lim += getSelectedLimit(d.id, null, ft.id);
+        fact += getMtd(d.id, null, ft.id);
+      }
+      return { fuel: ft, lim, fact, pct: safePct(fact, lim) };
+    }).filter((fs) => realDepartments.some((d) => isFuelEnabled(d.id, fs.fuel.id)));
+  }, [orderedFuels, realDepartments, getSelectedLimit, getMtd, isFuelEnabled]);
+
+  // --------------------------------------------------------
+  // Derived: daily trend data per fuel type — limit + fact for each day
+  // --------------------------------------------------------
+  const dailyByFuel = useMemo(() => {
+    const map: Record<string, { day: string; limit: number; fact: number }[]> = {};
+    const start = new Date(dateFrom + 'T00:00:00');
+    const end = new Date(Math.min(new Date(dateTo + 'T00:00:00').getTime(), new Date(mtdCutoff + 'T00:00:00').getTime()));
+    for (const ft of orderedFuels) {
+      if (!realDepartments.some((d) => isFuelEnabled(d.id, ft.id))) continue;
+      // Sum monthly limits across all enabled departments for this fuel
+      let totalMonthlyLimit = 0;
+      for (const d of realDepartments) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
+        totalMonthlyLimit += getLimit(d.id, null, ft.id);
+      }
+      const dailyLimit = totalMonthlyLimit / dim;
+      // Build day-by-day fact consumption for this fuel (only from enabled departments)
+      const factByDay: Record<string, number> = {};
+      for (const e of entries) {
+        if (e.fuel_type_id !== ft.id) continue;
+        if (!isFuelEnabled(e.department_id, e.fuel_type_id)) continue;
+        if (e.entry_date <= mtdCutoff) {
+          factByDay[e.entry_date] = (factByDay[e.entry_date] ?? 0) + (Number(e.consumption) || 0);
+        }
+      }
+      const arr: { day: string; limit: number; fact: number }[] = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const ds = d.toISOString().slice(0, 10);
+        arr.push({ day: ds.slice(8), limit: Math.round(dailyLimit), fact: Math.round(factByDay[ds] ?? 0) });
+      }
+      map[ft.id] = arr;
+    }
+    return map;
+  }, [orderedFuels, realDepartments, entries, getLimit, dim, mtdCutoff, dateFrom, dateTo, isFuelEnabled]);
+
+  // --------------------------------------------------------
+  // Derived: breakdown table rows — per fuel type per department/section
+  // --------------------------------------------------------
+  interface BreakdownRow {
+    id: string;
+    label: string;
+    fuelCode: string;
+    unit: string;
+    type: 'dept-header' | 'data' | 'total';
+    block1Limit: number;
+    block1Fact: number;
+    block2Limit: number;
+    block2Fact: number;
+  }
+
+  const breakdownRows = useMemo<BreakdownRow[]>(() => {
+    const rows: BreakdownRow[] = [];
+    const totalByFuel: Record<string, { b1Limit: number; b1Fact: number; b2Limit: number; b2Fact: number }> = {};
+    for (const ft of orderedFuels) {
+      totalByFuel[ft.id] = { b1Limit: 0, b1Fact: 0, b2Limit: 0, b2Fact: 0 };
+    }
+
+    for (const d of realDepartments) {
+      const deptHasAnyFuel = orderedFuels.some((ft) => isFuelEnabled(d.id, ft.id));
+      if (!deptHasAnyFuel) continue;
+
+      rows.push({
+        id: `dept-${d.id}`, label: ln(d), fuelCode: '', unit: '',
+        type: 'dept-header',
+        block1Limit: 0, block1Fact: 0, block2Limit: 0, block2Fact: 0,
+      });
+
+      for (const ft of orderedFuels) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
+        const b1L = block1Valid ? getBlock1Limit(d.id, null, ft.id) : 0;
+        const b1F = block1Valid ? getBlock1Fact(d.id, null, ft.id) : 0;
+        const b2L = block2Valid ? getBlock2Limit(d.id, null, ft.id) : 0;
+        const b2F = block2Valid ? getBlock2Fact(d.id, null, ft.id) : 0;
+        rows.push({
+          id: `dept-${d.id}-${ft.id}`, label: ln(ft), fuelCode: ft.code, unit: ft.unit,
+          type: 'data',
+          block1Limit: b1L, block1Fact: b1F, block2Limit: b2L, block2Fact: b2F,
+        });
+        totalByFuel[ft.id].b1Limit += b1L;
+        totalByFuel[ft.id].b1Fact += b1F;
+        totalByFuel[ft.id].b2Limit += b2L;
+        totalByFuel[ft.id].b2Fact += b2F;
       }
     }
-    load()
-  }, [])
 
-  if (loading) return <LoadingSpinner />
+    for (const ft of orderedFuels) {
+      if (!realDepartments.some((d) => isFuelEnabled(d.id, ft.id))) continue;
+      const tot = totalByFuel[ft.id];
+      rows.push({
+        id: `total-${ft.id}`, label: `${ln(ft)} (${t('total')})`, fuelCode: ft.code, unit: ft.unit,
+        type: 'total',
+        block1Limit: tot.b1Limit, block1Fact: tot.b1Fact, block2Limit: tot.b2Limit, block2Fact: tot.b2Fact,
+      });
+    }
 
-  const deptMap = new Map(departments.map(d => [d.id, d]))
-  const fuelMap = new Map(fuelTypes.map(f => [f.id, f]))
-  const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+    return rows;
+  }, [realDepartments, orderedFuels, getBlock1Limit, getBlock1Fact, getBlock2Limit, getBlock2Fact, block1Valid, block2Valid, ln, t, isFuelEnabled]);
 
-  const statCards = [
-    { label: uz.dashboard.totalVehicles, value: stats.vehicles, icon: <IconTruck size={24} />, color: 'bg-primary-50 text-primary-700' },
-    { label: uz.dashboard.totalDepartments, value: stats.departments, icon: <IconLayers size={24} />, color: 'bg-accent-50 text-accent-700' },
-    { label: uz.dashboard.totalFuelTypes, value: stats.fuelTypes, icon: <IconFuel size={24} />, color: 'bg-success-50 text-success-700' },
-    { label: uz.dashboard.totalEntries, value: stats.entries, icon: <IconCalendar size={24} />, color: 'bg-warning-50 text-warning-700' },
-  ]
+  // --------------------------------------------------------
+  // Derived: warnings — departments at >=80% of their MTD limit
+  // --------------------------------------------------------
+  interface Warning {
+    id: string;
+    label: string;
+    pct: number;
+    mtdFact: number;
+    mtdLimit: number;
+  }
 
+  const warnings = useMemo<Warning[]>(() => {
+    const list: Warning[] = [];
+    for (const d of realDepartments) {
+      let lim = 0;
+      let fact = 0;
+      for (const ft of orderedFuels) {
+        if (!isFuelEnabled(d.id, ft.id)) continue;
+        lim += getSelectedLimit(d.id, null, ft.id);
+        fact += getMtd(d.id, null, ft.id);
+      }
+      const pct = safePct(fact, lim);
+      if (pct >= 80) {
+        list.push({ id: d.id, label: ln(d), pct, mtdFact: fact, mtdLimit: lim });
+      }
+    }
+    return list.sort((a, b) => b.pct - a.pct);
+  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled]);
+
+  // --------------------------------------------------------
+  // Render helpers
+  // --------------------------------------------------------
+  const selectCls =
+    'rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring';
+
+  const devCls = (dev: number): string => {
+    if (dev > 0) return 'text-destructive';
+    if (dev < 0) return 'text-emerald-600';
+    return 'text-muted-foreground';
+  };
+
+  const pctCls = (pct: number): string => {
+    if (pct >= 100) return 'text-destructive';
+    if (pct >= 80) return 'text-orange-600';
+    return 'text-foreground';
+  };
+
+  // --------------------------------------------------------
+  // Render
+  // --------------------------------------------------------
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-800 mb-6">{uz.dashboard.title}</h1>
+    <div className="space-y-6">
+      {/* Header + selectors */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{t('dashboard')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('reportingPeriod')}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('dateFrom')}</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className={selectCls}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">{t('dateTo')}</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className={selectCls}
+            />
+          </div>
+        </div>
+      </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {statCards.map((card, i) => (
-          <div key={i} className="card p-5 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-slate-500 mb-1">{card.label}</div>
-                <div className="text-3xl font-bold text-slate-800">{card.value}</div>
-              </div>
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${card.color}`}>
-                {card.icon}
-              </div>
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center rounded-xl border border-border bg-card p-12 shadow-sm">
+          <div className="inline-flex items-center gap-2 text-muted-foreground">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-primary" />
+            {t('loading')}
+          </div>
+        </div>
+      )}
+
+      {!loading && (
+        <>
+          {/* Limit vs Fact — one bar chart per fuel type */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {orderedFuels.map((ft) => {
+              const style = FUEL_STYLES[ft.code] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
+              const chartData = (barDataByFuel[ft.id] ?? []).map((r) => ({
+                ...r,
+                saved: Math.max(0, r.limit - r.fact),
+              }));
+              return (
+                <div key={ft.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                  <div className="mb-4 flex items-center gap-2">
+                    <Gauge className="h-5 w-5" style={{ color: style.fact }} />
+                    <h2 className="text-base font-semibold text-foreground">
+                      {t('limitVsFact')} — {ln(ft)}
+                    </h2>
+                  </div>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" angle={-30} textAnchor="end" height={60} />
+                      <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Bar dataKey="limit" name={t('limit')} fill={style.limit} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="fact" name={t('fact')} fill={style.fact} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="saved" name={t('economy')} fill="#16a34a" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="border-r border-border px-3 py-2 text-left font-semibold text-foreground">
+                            {t('department')}
+                          </th>
+                          <th className="border-r border-border px-3 py-2 text-right font-semibold text-foreground">
+                            {t('fact')}
+                          </th>
+                          <th className="border-r border-border px-3 py-2 text-right font-semibold text-foreground">
+                            {t('limit')}
+                          </th>
+                          <th className="px-3 py-2 text-right font-semibold text-foreground">
+                            {t('economy')}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chartData.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                              {t('noData')}
+                            </td>
+                          </tr>
+                        )}
+                        {chartData.map((row) => {
+                          const saved = row.limit - row.fact;
+                          return (
+                            <tr key={row.name} className="border-b border-border transition hover:bg-muted/30">
+                              <td className="border-r border-border px-3 py-2 text-foreground">{row.name}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(row.fact)}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(row.limit)}</td>
+                              <td className={`px-3 py-2 text-right ${devCls(saved)}`}>
+                                {saved > 0 ? '+' : ''}{fmt(saved)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {chartData.length > 0 && (() => {
+                          const totalFact = chartData.reduce((s, r) => s + r.fact, 0);
+                          const totalLimit = chartData.reduce((s, r) => s + r.limit, 0);
+                          const totalSaved = totalLimit - totalFact;
+                          return (
+                            <tr className="bg-muted/60 font-bold">
+                              <td className="border-r border-border px-3 py-2 text-foreground">{t('total')}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(totalFact)}</td>
+                              <td className="border-r border-border px-3 py-2 text-right text-foreground">{fmt(totalLimit)}</td>
+                              <td className={`px-3 py-2 text-right ${devCls(totalSaved)}`}>
+                                {totalSaved > 0 ? '+' : ''}{fmt(totalSaved)}
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Fuel Type Summary — independent cards, each with own scale */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {fuelSummary.map((fs) => {
+              const style = FUEL_STYLES[fs.fuel.code] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
+              const barWidth = Math.min(fs.pct, 100);
+              return (
+                <div
+                  key={fs.fuel.id}
+                  className="rounded-xl border border-border bg-card p-5 shadow-sm"
+                  style={{ borderTop: `3px solid ${style.fact}` }}
+                >
+                  <div className="mb-3 flex items-center gap-2">
+                    <Fuel className="h-5 w-5" style={{ color: style.fact }} />
+                    <h2 className="text-base font-semibold text-foreground">{ln(fs.fuel)}</h2>
+                    <span className="text-xs text-muted-foreground">({formatUnit(fs.fuel.unit, lang)})</span>
+                  </div>
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">{t('fact')}</p>
+                      <p className="text-xl font-bold text-foreground">{fmt(fs.fact)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">{t('limit')}</p>
+                      <p className="text-xl font-semibold text-muted-foreground">{fmt(fs.lim)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs font-medium text-green-600">{t('economy')}</span>
+                    <span
+                      className={`text-sm font-semibold ${
+                        fs.lim - fs.fact > 0
+                          ? 'text-green-600'
+                          : fs.lim - fs.fact < 0
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
+                      }`}
+                    >
+                      {fmt(fs.lim - fs.fact)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{t('percent')}</span>
+                    <span
+                      className={`text-sm font-bold ${
+                        fs.pct >= 100 ? 'text-destructive' : fs.pct >= 80 ? 'text-orange-600' : 'text-primary'
+                      }`}
+                    >
+                      {fmtPct(fs.pct)}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-muted/60">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${barWidth}%`,
+                        backgroundColor: fs.pct >= 100 ? 'hsl(0 70% 60%)' : style.fact,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Daily Trend — one line chart per fuel type with Limit + Fact */}
+          <div className="grid grid-cols-1 gap-4">
+            {orderedFuels.map((ft) => {
+              const style = FUEL_STYLES[ft.code] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
+              const chartData = dailyByFuel[ft.id] ?? [];
+              return (
+                <div key={ft.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                  <div className="mb-4 flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5" style={{ color: style.fact }} />
+                    <h2 className="text-base font-semibold text-foreground">
+                      {t('dailyTrend')} — {ln(ft)}
+                    </h2>
+                  </div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                      <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Line type="monotone" dataKey="limit" name={t('limit')} stroke={style.limit} strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="fact" name={t('fact')} stroke={style.fact} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Breakdown table */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th
+                      rowSpan={2}
+                      className="border-r border-border px-3 py-2.5 text-left font-semibold text-foreground"
+                    >
+                      {t('department')} / {t('fuelType')}
+                    </th>
+                    <th
+                      colSpan={4}
+                      className="border-r border-border px-3 py-2.5 text-center font-semibold text-foreground"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-xs font-semibold text-muted-foreground">{t('period')}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateFrom')}</label>
+                            <input
+                              type="date"
+                              value={dailyDateFrom}
+                              onChange={(e) => setDailyDateFrom(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateTo')}</label>
+                            <input
+                              type="date"
+                              value={dailyDateTo}
+                              onChange={(e) => setDailyDateTo(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                        </div>
+                        {!block1Valid && (
+                          <span className="text-[10px] font-medium text-destructive">{t('dateRangeError')}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th colSpan={4} className="px-3 py-2.5 text-center font-semibold text-foreground">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-xs font-semibold text-muted-foreground">{t('period')}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateFrom')}</label>
+                            <input
+                              type="date"
+                              value={periodDateFrom}
+                              onChange={(e) => setPeriodDateFrom(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                          <div className="flex flex-col items-start">
+                            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">{t('dateTo')}</label>
+                            <input
+                              type="date"
+                              value={periodDateTo}
+                              onChange={(e) => setPeriodDateTo(e.target.value)}
+                              className={selectCls}
+                            />
+                          </div>
+                        </div>
+                        {!block2Valid && (
+                          <span className="text-[10px] font-medium text-destructive">{t('dateRangeError')}</span>
+                        )}
+                      </div>
+                    </th>
+                  </tr>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="border-l border-border px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodLimit')}
+                    </th>
+                    <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodFact')}
+                    </th>
+                    <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodDeviation')}
+                    </th>
+                    <th className="border-r border-border px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodPercent')}
+                    </th>
+                    <th className="border-l border-border px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodLimit')}
+                    </th>
+                    <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodFact')}
+                    </th>
+                    <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodDeviation')}
+                    </th>
+                    <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
+                      {t('periodPercent')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakdownRows.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
+                        {t('noData')}
+                      </td>
+                    </tr>
+                  )}
+                  {breakdownRows.map((row) => {
+                    if (row.type === 'dept-header') {
+                      return (
+                        <tr key={row.id} className="border-b border-border bg-muted/30">
+                          <td colSpan={9} className="px-3 py-2.5 font-semibold text-foreground">
+                            {row.label}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    const b1Dev = row.block1Fact - row.block1Limit;
+                    const b1Pct = ceilPct(row.block1Fact, row.block1Limit);
+                    const b2Dev = row.block2Fact - row.block2Limit;
+                    const b2Pct = ceilPct(row.block2Fact, row.block2Limit);
+                    const isTotal = row.type === 'total';
+                    const style = FUEL_STYLES[row.fuelCode] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
+
+                    return (
+                      <tr
+                        key={row.id}
+                        className={`border-b border-border transition hover:bg-muted/30 ${
+                          isTotal ? 'bg-muted/60 font-bold' : ''
+                        }`}
+                      >
+                        <td className="border-r border-border px-3 py-2.5 text-foreground">
+                          <span className="flex items-center gap-2">
+                            <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: style.fact }} />
+                            <span>
+                              {row.label}
+                            </span>
+                            <span className="text-xs text-muted-foreground ml-1">({formatUnit(row.unit, lang)})</span>
+                          </span>
+                        </td>
+                        <td className="border-l border-border px-3 py-2.5 text-right text-foreground">
+                          {fmt(row.block1Limit)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-foreground">{fmt(row.block1Fact)}</td>
+                        <td className={`px-3 py-2.5 text-right ${devCls(b1Dev)}`}>
+                          {b1Dev > 0 ? '+' : ''}
+                          {fmt(b1Dev)}
+                        </td>
+                        <td className={`border-r border-border px-3 py-2.5 text-right ${pctCls(b1Pct)}`}>
+                          {fmtPct(b1Pct)}
+                        </td>
+                        <td className="border-l border-border px-3 py-2.5 text-right text-foreground">
+                          {fmt(row.block2Limit)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-foreground">{fmt(row.block2Fact)}</td>
+                        <td className={`px-3 py-2.5 text-right ${devCls(b2Dev)}`}>
+                          {b2Dev > 0 ? '+' : ''}
+                          {fmt(b2Dev)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right ${pctCls(b2Pct)}`}>{fmtPct(b2Pct)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* Recent entries */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200">
-          <h2 className="font-semibold text-slate-800">{uz.dashboard.recentEntries}</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="table-header">{uz.form.date}</th>
-                <th className="table-header">{uz.form.department}</th>
-                <th className="table-header">{uz.form.vehicle}</th>
-                <th className="table-header">{uz.form.fuelType}</th>
-                <th className="table-header text-right">{uz.form.consumption}</th>
-                <th className="table-header text-right">{uz.form.closingBalance}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {recentEntries.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-slate-400">{uz.table.noData}</td></tr>
-              ) : recentEntries.map(entry => {
-                const dept = deptMap.get(entry.department_id)
-                const fuel = fuelMap.get(entry.fuel_type_id)
-                const vehicle = vehicleMap.get(entry.vehicle_id)
-                return (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="table-cell">{new Date(entry.entry_date).toLocaleDateString('uz')}</td>
-                    <td className="table-cell">{dept?.name_uz || dept?.name || '-'}</td>
-                    <td className="table-cell">{vehicle?.name_uz || vehicle?.name || '-'}</td>
-                    <td className="table-cell">{fuel?.name_uz || fuel?.name || '-'}</td>
-                    <td className="table-cell text-right font-medium">{Number(entry.consumption).toLocaleString()}</td>
-                    <td className="table-cell text-right font-medium">{Number(entry.closing_balance).toLocaleString()}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          {/* Warnings section */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-4 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-600" />
+              <h2 className="text-base font-semibold text-foreground">{t('alerts')}</h2>
+            </div>
+            {warnings.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">{t('noAlerts')}</p>
+            ) : (
+              <div className="space-y-2">
+                {warnings.map((w) => {
+                  const over = w.pct >= 100;
+                  return (
+                    <div
+                      key={w.id}
+                      className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                        over
+                          ? 'border-destructive/30 bg-destructive/5'
+                          : 'border-orange-600/30 bg-orange-600/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle
+                          className={`h-4 w-4 ${over ? 'text-destructive' : 'text-orange-600'}`}
+                        />
+                        <span className="text-sm font-medium text-foreground">{w.label}</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm text-muted-foreground">
+                          {fmt(w.mtdFact)} / {fmt(w.mtdLimit)}
+                        </span>
+                        <span
+                          className={`text-sm font-bold ${over ? 'text-destructive' : 'text-orange-600'}`}
+                        >
+                          {fmtPct(w.pct)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
-  )
+  );
 }
