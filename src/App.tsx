@@ -1,76 +1,46 @@
-import { useState } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { AppLayout } from './components/layout/AppLayout';
-import { AuthPage } from './pages/AuthPage';
-import { LandingPage } from './pages/LandingPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { EntriesPage } from './pages/EntriesPage';
-import { LimitsPage } from './pages/LimitsPage';
-import { MasterDataPage } from './pages/MasterDataPage';
-import { UsersPage } from './pages/UsersPage';
-import { AuditPage } from './pages/AuditPage';
-import { DocsPage } from './pages/DocsPage';
-import type { AppRole } from './lib/supabase';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './context/AuthContext';
+import Login from './pages/Login';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import DailyEntries from './pages/DailyEntries';
+import MonthlyLimits from './pages/MonthlyLimits';
+import Departments from './pages/Departments';
+import Sections from './pages/Sections';
+import FuelTypes from './pages/FuelTypes';
+import Vehicles from './pages/Vehicles';
+import Companies from './pages/Companies';
+import UsersPage from './pages/UsersPage';
+import AuditLog from './pages/AuditLog';
+import RolePermissions from './pages/RolePermissions';
 
-export type ViewKey =
-  | 'dashboard'
-  | 'entries'
-  | 'limits'
-  | 'master-data'
-  | 'users'
-  | 'audit'
-  | 'docs';
-
-function AppContent() {
-  const { session, profile, roles, loading } = useAuth();
-  const [view, setView] = useState<ViewKey>('dashboard');
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
-      </div>
-    );
-  }
-
-  if (!session || !profile) {
-    return <AuthPage />;
-  }
-
-  const hasAny = (rs: AppRole[]) => rs.some((r) => roles.includes(r));
-
-  const renderView = () => {
-    switch (view) {
-      case 'dashboard':
-        return <DashboardPage />;
-      case 'entries':
-        return hasAny(['admin', 'gsm', 'operator', 'master']) ? <EntriesPage /> : <DashboardPage />;
-      case 'limits':
-        return hasAny(['admin', 'gsm', 'operator', 'management']) ? <LimitsPage /> : <DashboardPage />;
-      case 'master-data':
-        return hasAny(['admin', 'operator']) ? <MasterDataPage /> : <DashboardPage />;
-      case 'users':
-        return hasAny(['admin']) ? <UsersPage /> : <DashboardPage />;
-      case 'audit':
-        return hasAny(['admin', 'gsm', 'operator']) ? <AuditPage /> : <DashboardPage />;
-      case 'docs':
-        return <DocsPage />;
-      default:
-        return <DashboardPage />;
-    }
-  };
-
+function ProtectedRoutes() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="flex min-h-screen items-center justify-center"><p className="text-muted-foreground">Yuklanmoqda...</p></div>;
+  if (!user) return <Navigate to="/login" replace />;
   return (
-    <AppLayout currentView={view} onNavigate={setView}>
-      {renderView()}
-    </AppLayout>
+    <Routes>
+      <Route path="/" element={<Layout />}>
+        <Route index element={<Dashboard />} />
+        <Route path="daily-entries" element={<DailyEntries />} />
+        <Route path="monthly-limits" element={<MonthlyLimits />} />
+        <Route path="departments" element={<Departments />} />
+        <Route path="sections" element={<Sections />} />
+        <Route path="fuel-types" element={<FuelTypes />} />
+        <Route path="vehicles" element={<Vehicles />} />
+        <Route path="companies" element={<Companies />} />
+        <Route path="users" element={<UsersPage />} />
+        <Route path="audit-log" element={<AuditLog />} />
+        <Route path="role-permissions" element={<RolePermissions />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
   );
 }
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
+  const { user, loading } = useAuth();
+  if (loading) return <div className="flex min-h-screen items-center justify-center"><p className="text-muted-foreground">Yuklanmoqda...</p></div>;
+  if (!user) return <Routes><Route path="/login" element={<Login />} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes>;
+  return <ProtectedRoutes />;
 }

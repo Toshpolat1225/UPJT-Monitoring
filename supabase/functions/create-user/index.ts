@@ -23,7 +23,6 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const { full_name, email, department_id, company_id, roles, password } = body;
 
-    // Validation
     if (!full_name || typeof full_name !== "string" || !full_name.trim()) {
       return new Response(JSON.stringify({ error: "full_name is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -45,14 +44,12 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Use service role client (bypasses RLS)
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { autoRefreshToken: false, persistSession: false } },
     );
 
-    // Verify the caller is admin
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -82,7 +79,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Create auth user
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: email.trim(),
       password,
@@ -98,8 +94,7 @@ Deno.serve(async (req: Request) => {
 
     const newUserId = authData.user.id;
 
-    // Update profile with department_id and company_id
-    const { error: profileError } = await supabaseAdmin
+    await supabaseAdmin
       .from("profiles")
       .update({
         full_name: full_name.trim(),
@@ -109,20 +104,8 @@ Deno.serve(async (req: Request) => {
       })
       .eq("id", newUserId);
 
-    if (profileError) {
-      // User created but profile update failed — still return success
-      console.error("Profile update failed:", profileError.message);
-    }
-
-    // Insert roles
     const roleRows = roles.map((r: string) => ({ user_id: newUserId, role: r }));
-    const { error: rolesError } = await supabaseAdmin
-      .from("user_roles")
-      .insert(roleRows);
-
-    if (rolesError) {
-      console.error("Roles insert failed:", rolesError.message);
-    }
+    await supabaseAdmin.from("user_roles").insert(roleRows);
 
     return new Response(JSON.stringify({
       success: true,
