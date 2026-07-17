@@ -1,76 +1,56 @@
-import { useState } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { AppLayout } from './components/layout/AppLayout';
-import { AuthPage } from './pages/AuthPage';
-import { LandingPage } from './pages/LandingPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { EntriesPage } from './pages/EntriesPage';
-import { LimitsPage } from './pages/LimitsPage';
-import { MasterDataPage } from './pages/MasterDataPage';
-import { UsersPage } from './pages/UsersPage';
-import { AuditPage } from './pages/AuditPage';
-import { DocsPage } from './pages/DocsPage';
-import type { AppRole } from './lib/supabase';
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useAuth } from './lib/auth'
+import { Layout } from './components/Layout'
+import { LoginPage } from './pages/LoginPage'
+import { DashboardPage } from './pages/DashboardPage'
+import { CompaniesPage } from './pages/references/CompaniesPage'
+import { DepartmentsPage } from './pages/references/DepartmentsPage'
+import { SectionsPage } from './pages/references/SectionsPage'
+import { FuelTypesPage } from './pages/references/FuelTypesPage'
+import { VehiclesPage } from './pages/references/VehiclesPage'
+import { DailyEntriesPage } from './pages/reports/DailyEntriesPage'
+import { MonthlyLimitsPage } from './pages/reports/MonthlyLimitsPage'
+import { FuelMatrixPage } from './pages/settings/FuelMatrixPage'
+import { RolePermissionsPage } from './pages/settings/RolePermissionsPage'
+import { ProfilesPage } from './pages/settings/ProfilesPage'
+import { LoadingSpinner } from './components/UI'
 
-export type ViewKey =
-  | 'dashboard'
-  | 'entries'
-  | 'limits'
-  | 'master-data'
-  | 'users'
-  | 'audit'
-  | 'docs';
-
-function AppContent() {
-  const { session, profile, roles, loading } = useAuth();
-  const [view, setView] = useState<ViewKey>('dashboard');
+export default function App() {
+  const { session, loading } = useAuth()
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <LoadingSpinner />
       </div>
-    );
+    )
   }
 
-  if (!session || !profile) {
-    return <AuthPage />;
+  if (!session) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    )
   }
 
-  const hasAny = (rs: AppRole[]) => rs.some((r) => roles.includes(r));
-
-  const renderView = () => {
-    switch (view) {
-      case 'dashboard':
-        return <DashboardPage />;
-      case 'entries':
-        return hasAny(['admin', 'gsm', 'operator', 'master']) ? <EntriesPage /> : <DashboardPage />;
-      case 'limits':
-        return hasAny(['admin', 'gsm', 'operator', 'management']) ? <LimitsPage /> : <DashboardPage />;
-      case 'master-data':
-        return hasAny(['admin', 'operator']) ? <MasterDataPage /> : <DashboardPage />;
-      case 'users':
-        return hasAny(['admin']) ? <UsersPage /> : <DashboardPage />;
-      case 'audit':
-        return hasAny(['admin', 'gsm', 'operator']) ? <AuditPage /> : <DashboardPage />;
-      case 'docs':
-        return <DocsPage />;
-      default:
-        return <DashboardPage />;
-    }
-  };
-
   return (
-    <AppLayout currentView={view} onNavigate={setView}>
-      {renderView()}
-    </AppLayout>
-  );
-}
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
+    <Layout>
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/references/companies" element={<CompaniesPage />} />
+        <Route path="/references/departments" element={<DepartmentsPage />} />
+        <Route path="/references/sections" element={<SectionsPage />} />
+        <Route path="/references/fuel-types" element={<FuelTypesPage />} />
+        <Route path="/references/vehicles" element={<VehiclesPage />} />
+        <Route path="/reports/daily-entries" element={<DailyEntriesPage />} />
+        <Route path="/reports/monthly-limits" element={<MonthlyLimitsPage />} />
+        <Route path="/settings/fuel-matrix" element={<FuelMatrixPage />} />
+        <Route path="/settings/role-permissions" element={<RolePermissionsPage />} />
+        <Route path="/settings/profiles" element={<ProfilesPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Layout>
+  )
 }
