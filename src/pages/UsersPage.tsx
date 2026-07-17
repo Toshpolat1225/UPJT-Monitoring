@@ -1,77 +1,73 @@
-import { useEffect, useState, useCallback } from 'react';
-import toast from 'react-hot-toast';
-import { supabase, type Profile, type UserRole, type Department, type Company, type AppRole } from '../lib/supabase';
+import { useEffect, useState } from 'react';
+import { supabase, type Profile, type AppRole, type RolePermission, type Company } from '../lib/supabase';
+import { useI18n } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
-import { t } from '../lib/i18n';
-import { PageHeader, Card, Button, Input, Select, Modal, Table, EmptyState, Badge } from '../components/ui';
+import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 const ROLES: AppRole[] = ['admin', 'gsm', 'operator', 'master', 'management'];
+const MODULES = ['entries', 'limits', 'master_data', 'users', 'audit'] as const;
+const PERMS = ['view', 'create', 'edit', 'delete'] as const;
 
-const ROLE_LABELS: Record<AppRole, string> = {
-  admin: 'Admin', gsm: 'GSM', operator: 'Operator', master: 'Master', management: 'Boshqaruv',
-};
+interface UserRoleRow { id: string; user_id: string; role: AppRole }
+interface Dept { id: string; name_uz: string; name_ru: string }
 
-interface UserRow extends Profile {
-  roles: AppRole[];
+export function UsersPage() {
+  const { t } = useI18n();
+  const [tab, setTab] = useState<'users' | 'permissions'>('users');
+
+  return (
+    <div className="space-y-5">
+      <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('users')}</h1>
+      <div className="inline-flex rounded-lg border border-border p-0.5">
+        <button
+          onClick={() => setTab('users')}
+          className={`rounded-md px-4 py-1.5 text-sm transition-colors ${tab === 'users' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+        >
+          {t('users')}
+        </button>
+        <button
+          onClick={() => setTab('permissions')}
+          className={`rounded-md px-4 py-1.5 text-sm transition-colors ${tab === 'permissions' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+        >
+          {t('permissions')}
+        </button>
+      </div>
+      {tab === 'users' ? <UsersTab /> : <PermissionsTab />}
+    </div>
+  );
 }
 
-export default function UsersPage() {
-  const { isAdmin } = useAuth();
-  const [rows, setRows] = useState<UserRow[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+function UsersTab() {
+  const { t, ln } = useI18n();
+  const { user } = useAuth();
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [roles, setRoles] = useState<UserRoleRow[]>([]);
+  const [depts, setDepts] = useState<Dept[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
-    full_name: '', email: '', department_id: '', company_id: '',
-    roles: [] as AppRole[], password: '', passwordConfirm: '',
-  });
-  const [search, setSearch] = useState('');
+  const [form, setForm] = useState({ full_name: '', email: '', department_id: '', company_id: '', roles: [] as string[], password: '', passwordConfirm: '' });
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [pRes, rRes, dRes, cRes] = await Promise.all([
-      supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-      supabase.from('user_roles').select('*'),
-      supabase.from('departments').select('*').eq('is_total', false).order('name_uz'),
+  const load = async () => {
+    const [p, r, d, c] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('user_roles').select('id,user_id,role'),
+      supabase.from('departments').select('id,name_uz,name_ru').order('name_uz'),
       supabase.from('companies').select('*').order('short_name'),
     ]);
-    if (pRes.error) toast.error(pRes.error.message);
-    if (rRes.error) toast.error(rRes.error.message);
-
-    const profiles = (pRes.data as Profile[]) ?? [];
-    const allRoles = (rRes.data as UserRole[]) ?? [];
-    const mapped: UserRow[] = profiles.map((p) => ({
-      ...p,
-      roles: allRoles.filter((r) => r.user_id === p.id).map((r) => r.role),
-    }));
-    setRows(mapped);
-    setDepartments((dRes.data as Department[]) ?? []);
-    setCompanies((cRes.data as Company[]) ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = rows.filter((r) =>
-    r.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.email?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const openNew = () => {
-    setEditing(null);
-    setForm({ full_name: '', email: '', department_id: '', company_id: '', roles: [], password: '', passwordConfirm: '' });
-    setOpen(true);
+    setProfiles((p.data ?? []) as Profile[]);
+    setRoles((r.data ?? []) as UserRoleRow[]);
+    setDepts((d.data ?? []) as Dept[]);
+    setCompanies((c.data ?? []) as Company[]);
   };
+  useEffect(() => { load(); }, []);
 
-  const openEdit = (p: Profile) => {
-    setEditing(p);
-    const userRoles = rows.find((r) => r.id === p.id)?.roles ?? [];
-    setForm({ full_name: p.full_name ?? '', email: p.email ?? '', department_id: p.department_id ?? '', company_id: p.company_id ?? '', roles: userRoles, password: '', passwordConfirm: '' });
-    setOpen(true);
-  };
+  const userRoles = (uid: string) => roles.filter((r) => r.user_id === uid).map((r) => r.role);
+
+  const openNew = () => { setEditing(null); setForm({ full_name: '', email: '', department_id: '', company_id: '', roles: [], password: '', passwordConfirm: '' }); setOpen(true); };
+  const openEdit = (p: Profile) => { setEditing(p); setForm({ full_name: p.full_name ?? '', email: p.email ?? '', department_id: p.department_id ?? '', company_id: p.company_id ?? '', roles: userRoles(p.id), password: '', passwordConfirm: '' }); setOpen(true); };
 
   const save = async () => {
     if (!form.full_name.trim()) { toast.error(t('fullName')); return; }
@@ -82,8 +78,7 @@ export default function UsersPage() {
 
     if (editing) {
       const { error: pErr } = await supabase.from('profiles').update({
-        full_name: form.full_name.trim(), email: form.email.trim(),
-        department_id: form.department_id || null, company_id: form.company_id || null,
+        full_name: form.full_name, email: form.email.trim(), department_id: form.department_id || null, company_id: form.company_id || null,
       }).eq('id', editing.id);
       if (pErr) return toast.error(pErr.message);
 
@@ -103,7 +98,7 @@ export default function UsersPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token ?? ''}`,
+            'Authorization': `Bearer ${session?.access_token}`,
           },
           body: JSON.stringify({
             full_name: form.full_name.trim(),
@@ -135,81 +130,190 @@ export default function UsersPage() {
   const del = async (p: Profile) => {
     if (!confirm(t('confirmDelete'))) return;
     const { error } = await supabase.from('profiles').delete().eq('id', p.id);
-    if (error) return toast.error(error.message);
-    toast.success(t('deleted'));
-    await load();
+    if (error) toast.error(error.message);
+    else { toast.success(t('saved')); await load(); }
   };
 
   return (
-    <div>
-      <PageHeader title={t('users')}>
-        {isAdmin && <Button onClick={openNew}>{t('add')}</Button>}
-      </PageHeader>
-      <Card>
-        <div className="mb-4"><Input label="" value={search} onChange={setSearch} placeholder={t('search')} /></div>
-        {loading ? <p className="py-8 text-center text-muted-foreground">{t('loading')}</p> :
-        filtered.length === 0 ? <EmptyState message={t('noData')} /> : (
-          <Table headers={[t('fullName'), t('email'), t('department'), t('company'), t('roles'), t('actions')]}>
-            {filtered.map((r) => (
-              <tr key={r.id} className="hover:bg-accent/30">
-                <td className="px-4 py-2.5 font-medium text-foreground">{r.full_name ?? '-'}</td>
-                <td className="px-4 py-2.5 text-foreground">{r.email ?? '-'}</td>
-                <td className="px-4 py-2.5 text-foreground">{departments.find((d) => d.id === r.department_id)?.name_uz ?? '-'}</td>
-                <td className="px-4 py-2.5 text-foreground">{companies.find((c) => c.id === r.company_id)?.short_name ?? '-'}</td>
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap gap-1">
-                    {r.roles.map((role) => (
-                      <Badge key={role} variant={role === 'admin' ? 'primary' : 'default'}>{ROLE_LABELS[role]}</Badge>
+    <div className="rounded-xl border border-border bg-card p-6">
+      <button onClick={openNew} className="mb-3 inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90">
+        <Plus className="h-4 w-4" />{t('newUser')}
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="relative w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <h2 className="font-semibold text-foreground">{editing ? t('edit') : t('newUser')}</h2>
+              <button onClick={() => setOpen(false)} className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-3 p-5">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">{t('fullName')}</label>
+                <input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">{t('email')}</label>
+                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">{t('department')}</label>
+                <select value={form.department_id || ''} onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
+                  <option value="">—</option>
+                  {depts.map((d) => <option key={d.id} value={d.id}>{ln(d)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">{t('company')}</label>
+                <select value={form.company_id || ''} onChange={(e) => setForm({ ...form, company_id: e.target.value })}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
+                  <option value="">{t('selectCompany')}</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.short_name} — {c.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">{t('role')}</label>
+                <div className="flex flex-wrap gap-1">
+                  {ROLES.map((r) => {
+                    const checked = form.roles.includes(r);
+                    return (
+                      <button key={r} type="button" onClick={() => setForm({ ...form, roles: checked ? form.roles.filter((x) => x !== r) : [...form.roles, r] })}
+                        className={`rounded px-2.5 py-1 text-xs transition-colors ${checked ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground'}`}>
+                        {r}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {!editing && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-foreground">{t('password')}</label>
+                    <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                      placeholder="••••••••" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-foreground">{t('passwordConfirm')}</label>
+                    <input type="password" value={form.passwordConfirm} onChange={(e) => setForm({ ...form, passwordConfirm: e.target.value })}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                      placeholder="••••••••" />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+              <button onClick={() => setOpen(false)} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted">{t('cancel')}</button>
+              <button onClick={save} disabled={creating} className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                {creating ? t('creating') : t('save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="py-2 font-medium">{t('fullName')}</th>
+              <th className="py-2 font-medium">{t('email')}</th>
+              <th className="py-2 font-medium">{t('company')}</th>
+              <th className="py-2 font-medium">{t('department')}</th>
+              <th className="py-2 font-medium">{t('role')}</th>
+              <th className="py-2 text-right font-medium">{t('actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profiles.map((p) => (
+              <tr key={p.id} className="border-b border-border/50">
+                <td className="py-2 font-medium text-foreground">{p.full_name || '—'}</td>
+                <td className="py-2 text-muted-foreground">{p.email}</td>
+                <td className="py-2 text-muted-foreground">{companies.find((c) => c.id === p.company_id)?.short_name ?? '—'}</td>
+                <td className="py-2 text-muted-foreground">{ln(depts.find((d) => d.id === p.department_id) ?? null)}</td>
+                <td className="py-2">
+                  <div className="flex flex-wrap gap-1 text-xs">
+                    {userRoles(p.id).map((r) => (
+                      <span key={r} className="rounded bg-muted px-1.5 py-0.5">{r}</span>
                     ))}
                   </div>
                 </td>
-                <td className="px-4 py-2.5">
-                  {isAdmin && <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>{t('edit')}</Button>
-                    <Button size="sm" variant="ghost" onClick={() => del(r)}>{t('delete')}</Button>
-                  </div>}
+                <td className="py-2 text-right">
+                  <button onClick={() => openEdit(p)} className="rounded p-1 text-muted-foreground hover:bg-muted"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => del(p)} disabled={p.id === user?.id} className="rounded p-1 text-destructive hover:bg-muted disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
                 </td>
               </tr>
             ))}
-          </Table>
-        )}
-      </Card>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
-      <Modal open={open} onClose={() => !creating && setOpen(false)} title={editing ? t('editUser') : t('newUser')}
-        footer={<>
-          <Button variant="secondary" onClick={() => setOpen(false)}>{t('cancel')}</Button>
-          <Button onClick={save} disabled={creating}>{creating ? t('creating') : t('save')}</Button>
-        </>}>
-        <div className="space-y-4">
-          <Input label={t('fullName')} value={form.full_name} onChange={(v) => setForm({ ...form, full_name: v })} required />
-          <Input label={t('email')} type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} required />
-          <Select label={t('department')} value={form.department_id} onChange={(v) => setForm({ ...form, department_id: v })}
-            options={departments.map((d) => ({ value: d.id, label: d.name_uz ?? d.code }))} placeholder={t('selectDept')} required />
-          <Select label={t('company')} value={form.company_id} onChange={(v) => setForm({ ...form, company_id: v })}
-            options={companies.map((c) => ({ value: c.id, label: c.short_name }))} placeholder={t('selectCompany')} required />
-          <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">{t('roles')}<span className="text-destructive"> *</span></label>
-            <div className="flex flex-wrap gap-1">
-              {ROLES.map((r) => {
-                const checked = form.roles.includes(r);
-                return (
-                  <button key={r} type="button"
-                    onClick={() => setForm({ ...form, roles: checked ? form.roles.filter((x) => x !== r) : [...form.roles, r] })}
-                    className={`rounded px-2.5 py-1 text-xs transition-colors ${checked ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground'}`}>
-                    {ROLE_LABELS[r]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {!editing && (
-            <>
-              <Input label={t('password')} type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="••••••••" />
-              <Input label={t('passwordConfirm')} type="password" value={form.passwordConfirm} onChange={(v) => setForm({ ...form, passwordConfirm: v })} placeholder="••••••••" />
-            </>
-          )}
-        </div>
-      </Modal>
+function PermissionsTab() {
+  const { t } = useI18n();
+  const [rows, setRows] = useState<RolePermission[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.from('role_permissions').select('*');
+    setRows((data ?? []) as RolePermission[]);
+  };
+  useEffect(() => { load(); }, []);
+
+  const get = (role: string, module: string, perm: string) =>
+    rows.find((r) => r.role === role && r.module === module && r.permission === perm)?.allowed ?? false;
+
+  const toggle = async (role: string, module: string, perm: string, value: boolean) => {
+    setBusy(true);
+    const existing = rows.find((r) => r.role === role && r.module === module && r.permission === perm);
+    if (existing) {
+      await supabase.from('role_permissions').update({ allowed: value }).eq('id', existing.id);
+    } else {
+      await supabase.from('role_permissions').insert({ role: role as AppRole, module, permission: perm, allowed: value });
+    }
+    await load();
+    setBusy(false);
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6">
+      <p className="mb-3 text-sm text-muted-foreground">{t('permissions')} — view / create / edit / delete per role per module.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="py-2 font-medium">{t('module')}</th>
+              {ROLES.map((r) => <th key={r} className="px-3 py-2 text-center font-medium">{r}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {MODULES.map((m) => PERMS.map((p) => (
+              <tr key={`${m}-${p}`} className="border-b border-border/50">
+                <td className="py-2 font-medium text-foreground">
+                  {m} <span className="text-xs text-muted-foreground">· {p}</span>
+                </td>
+                {ROLES.map((r) => (
+                  <td key={r} className="px-3 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={get(r, m, p)}
+                      disabled={busy}
+                      onChange={(e) => toggle(r, m, p, e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                  </td>
+                ))}
+              </tr>
+            )))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
