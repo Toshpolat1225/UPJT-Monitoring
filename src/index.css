@@ -188,4 +188,9 @@
   /* Remove alternating row backgrounds for cleaner print */
   tbody tr:nth-child(even) { background: #fff !important; }
   tbody tr:nth-child(odd)  { background: #fff !important; }
+
+  /* Dashboard — hide everything except the breakdown table print area */
+  .dash-print-root > * { display: none !important; }
+  .dash-print-root > .dash-print-area { display: block !important; }
+  .dash-print-root > .print-only { display: block !important; }
 }

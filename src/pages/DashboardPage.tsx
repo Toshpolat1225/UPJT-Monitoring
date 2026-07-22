@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { AlertTriangle, TrendingUp, Fuel, Gauge } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Fuel, Gauge, Printer } from 'lucide-react';
 import { supabase, type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry, fetchEnabledFuelKeys } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
@@ -686,10 +686,25 @@ export function DashboardPage() {
   // --------------------------------------------------------
   // Render
   // --------------------------------------------------------
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 dash-print-root">
+      {/* Print-only report header */}
+      <div className="print-only hidden">
+        <h1 className="text-xl font-bold text-black">AGMK UPJT</h1>
+        <p className="mt-1 text-sm text-black">{t('printDashSubtitle')}</p>
+        <p className="mt-0.5 text-sm font-semibold text-black">{t('printDashTitle')}</p>
+        <p className="mt-0.5 text-sm text-black">
+          {t('printDate')}: {new Date().toLocaleDateString('ru-RU')} {new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+        </p>
+        <hr className="mt-3 mb-4 border-black" />
+      </div>
+
       {/* Header + selectors */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="no-print flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t('dashboard')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('reportingPeriod')}</p>
@@ -926,7 +941,21 @@ export function DashboardPage() {
           </div>
 
           {/* Breakdown table */}
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="dash-print-area">
+            <div className="no-print mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-foreground">
+                {t('department')} / {t('fuelType')}
+              </h2>
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted/30"
+              >
+                <Printer className="h-4 w-4" />
+                {t('print')}
+              </button>
+            </div>
+            <div className="print-table-wrapper overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
@@ -941,7 +970,7 @@ export function DashboardPage() {
                       colSpan={4}
                       className="border-r border-border px-3 py-2.5 text-center font-semibold text-foreground"
                     >
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="no-print flex flex-col items-center gap-1">
                         <span className="text-xs font-semibold text-muted-foreground">{t('period')}</span>
                         <div className="flex items-center gap-2">
                           <div className="flex flex-col items-start">
@@ -969,7 +998,7 @@ export function DashboardPage() {
                       </div>
                     </th>
                     <th colSpan={4} className="px-3 py-2.5 text-center font-semibold text-foreground">
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="no-print flex flex-col items-center gap-1">
                         <span className="text-xs font-semibold text-muted-foreground">{t('period')}</span>
                         <div className="flex items-center gap-2">
                           <div className="flex flex-col items-start">
@@ -1091,6 +1120,7 @@ export function DashboardPage() {
                   })}
                 </tbody>
               </table>
+            </div>
             </div>
           </div>
 

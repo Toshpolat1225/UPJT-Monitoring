@@ -138,6 +138,8 @@ const dict = {
   print: { uz: "Chop etish", ru: "Печать" },
   printReportTitle: { uz: "Kunlik kiritish hisoboti", ru: "Отчет ежедневного ввода топлива" },
   printDate: { uz: "Chop etilgan", ru: "Напечатано" },
+  printDashTitle: { uz: "Sex / Yoqilg'i turi hisoboti", ru: "Отчёт по цехам / видам топлива" },
+  printDashSubtitle: { uz: "Yoqilg'i monitoring tizimi", ru: "Система мониторинга топлива" },
 } as const;
 
 export type DictKey = keyof typeof dict;
