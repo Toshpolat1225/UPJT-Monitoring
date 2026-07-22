@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, FileDown, X } from 'lucide-react';
+import { Plus, Trash2, Pencil, FileDown, Printer, X } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import {
@@ -547,10 +547,48 @@ export function EntriesPage() {
     'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring disabled:opacity-60';
   const labelCls = 'mb-1.5 block text-xs font-medium text-muted-foreground';
 
+  // --------------------------------------------------------
+  // Print
+  // --------------------------------------------------------
+  const activeFilters = useMemo(() => {
+    const items: { label: string; value: string }[] = [];
+    if (filterDateFrom) items.push({ label: t('dateFrom'), value: filterDateFrom });
+    if (filterDateTo) items.push({ label: t('dateTo'), value: filterDateTo });
+    if (filterDept) {
+      const dept = departments.find((d) => d.id === filterDept);
+      items.push({ label: t('department'), value: dept ? ln(dept) : filterDept });
+    }
+    if (filterVehicle) {
+      const veh = vehicles.find((v) => v.id === filterVehicle);
+      items.push({ label: t('vehicle'), value: veh ? `${veh.code} — ${ln(veh)}` : filterVehicle });
+    }
+    return items;
+  }, [filterDateFrom, filterDateTo, filterDept, filterVehicle, departments, vehicles, t, ln]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div className="space-y-6">
+      {/* Print-only report header */}
+      <div className="print-only hidden">
+        <h1 className="text-xl font-bold text-black">{t('printReportTitle')}</h1>
+        <p className="mt-1 text-sm text-black">
+          {t('printDate')}: {new Date().toLocaleDateString('ru-RU')} {new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+        </p>
+        {activeFilters.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-black">
+            {activeFilters.map((f) => (
+              <span key={f.label}><strong>{f.label}:</strong> {f.value}</span>
+            ))}
+          </div>
+        )}
+        <hr className="mt-3 mb-4 border-black" />
+      </div>
+
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="no-print flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t('entries')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('reportingPeriod')}</p>
@@ -572,11 +610,19 @@ export function EntriesPage() {
             <FileDown className="h-4 w-4" />
             {t('exportExcel')}
           </button>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted/30"
+          >
+            <Printer className="h-4 w-4" />
+            {t('print')}
+          </button>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-4 rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="no-print flex flex-wrap items-end gap-4 rounded-xl border border-border bg-card p-4 shadow-sm">
         <div>
           <label className={labelCls}>{t('dateFrom')}</label>
           <input
@@ -632,7 +678,7 @@ export function EntriesPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="print-table-wrapper overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -648,7 +694,7 @@ export function EntriesPage() {
                 <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('transferOut')}</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('consumption')}</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('closing')}</th>
-                <th className="px-3 py-2.5 text-center font-semibold text-foreground">{t('actions')}</th>
+                <th className="no-print px-3 py-2.5 text-center font-semibold text-foreground">{t('actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -683,7 +729,7 @@ export function EntriesPage() {
                     <td className="px-3 py-2 text-right text-foreground">{fmtNum(e.transfer_out)}</td>
                     <td className="px-3 py-2 text-right text-foreground">{fmtNum(e.consumption)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-foreground">{fmtNum(e.closing_balance)}</td>
-                    <td className="px-3 py-2">
+                    <td className="no-print px-3 py-2">
                       <div className="flex items-center justify-center gap-1">
                         <button
                           type="button"
@@ -751,7 +797,7 @@ export function EntriesPage() {
 
       {/* Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"

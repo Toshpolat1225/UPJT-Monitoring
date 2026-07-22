@@ -59,7 +59,7 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
   return (
     <div className="min-h-screen bg-muted/30">
       {/* Mobile header */}
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background px-4 py-3 lg:hidden">
+      <div className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
             <Fuel className="h-5 w-5 text-primary" />
@@ -72,8 +72,7 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
       </div>
 
       {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 transform border-r border-sidebar-border bg-sidebar transition-transform duration-300 lg:translate-x-0 ${
+      <aside className={`no-print fixed inset-y-0 left-0 z-40 w-64 transform border-r border-sidebar-border bg-sidebar transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -120,11 +119,11 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
       </aside>
 
       {/* Overlay for mobile */}
-      {sidebarOpen && <div className="fixed inset-0 z-30 bg-foreground/30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && <div className="no-print fixed inset-0 z-30 bg-foreground/30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
       {/* Main content */}
       <div className="lg:pl-64">
-        <header className="hidden h-16 items-center justify-between border-b border-border bg-background px-6 lg:flex">
+        <header className="no-print hidden h-16 items-center justify-between border-b border-border bg-background px-6 lg:flex">
           <div className="text-sm text-muted-foreground">{t('appName')}</div>
           <div className="flex items-center gap-2">
             <button

@@ -135,6 +135,9 @@ const dict = {
   creating: { uz: "Yaratilmoqda...", ru: "Создание..." },
   userCreated: { uz: "Foydalanuvchi yaratildi", ru: "Пользователь создан" },
   userCreateFailed: { uz: "Foydalanuvchi yaratishda xatolik", ru: "Ошибка при создании пользователя" },
+  print: { uz: "Chop etish", ru: "Печать" },
+  printReportTitle: { uz: "Kunlik kiritish hisoboti", ru: "Отчет ежедневного ввода топлива" },
+  printDate: { uz: "Chop etilgan", ru: "Напечатано" },
 } as const;
 
 export type DictKey = keyof typeof dict;

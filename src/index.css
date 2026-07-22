@@ -109,3 +109,83 @@
   .hover\:bg-sidebar-accent\/50:hover { background-color: hsl(var(--sidebar-accent) / 0.5); }
   .hover\:bg-sidebar-accent\/30:hover { background-color: hsl(var(--sidebar-accent) / 0.3); }
 }
+
+/* ============================================================
+   Print styles — Daily Entries report
+   ============================================================ */
+
+/* Show elements that are only for print */
+.print-only { display: none; }
+
+@media print {
+  @page {
+    margin: 10mm;
+    size: A4 landscape;
+  }
+
+  /* Reset page background for paper */
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide everything marked no-print */
+  .no-print { display: none !important; }
+
+  /* Show print-only elements */
+  .print-only { display: block !important; }
+
+  /* Remove layout padding that creates whitespace */
+  .lg\:pl-64 { padding-left: 0 !important; }
+
+  /* Report header */
+  .print-only h1 { font-size: 18px; margin: 0; }
+  .print-only p  { font-size: 11px; margin: 2px 0; }
+  .print-only hr { border: none; border-top: 1px solid #999; margin: 8px 0 12px; }
+
+  /* Table wrapper — remove card styling, let table fill the page */
+  .print-table-wrapper {
+    overflow: visible !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+  .print-table-wrapper > .overflow-x-auto { overflow: visible !important; }
+
+  /* Table — paper-optimised */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: auto;
+  }
+
+  thead { display: table-header-group; }
+
+  tr { page-break-inside: avoid; }
+
+  th, td {
+    border: 1px solid #999 !important;
+    padding: 4px 6px !important;
+    font-size: 10px !important;
+    color: #000 !important;
+    white-space: normal !important;
+    word-break: break-word;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  th {
+    background-color: #eee !important;
+    font-weight: 700 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Remove alternating row backgrounds for cleaner print */
+  tbody tr:nth-child(even) { background: #fff !important; }
+  tbody tr:nth-child(odd)  { background: #fff !important; }
+}
