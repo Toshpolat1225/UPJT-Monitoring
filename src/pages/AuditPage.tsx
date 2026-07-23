@@ -20,7 +20,7 @@ function normalizeAction(a: string) {
 }
 
 export function AuditPage() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const [rows, setRows] = useState<AuditLog[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [depts, setDepts] = useState<Record<string, Department>>({});
@@ -47,10 +47,10 @@ export function AuditPage() {
       const [a, p, d, s, v, f, r] = await Promise.all([
         supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(2000),
         supabase.from('profiles').select('id,full_name,email,department_id'),
-        supabase.from('departments').select('id,name_uz,name_ru'),
-        supabase.from('sections').select('id,name_uz,name_ru'),
-        supabase.from('vehicles').select('id,code,name_uz,name_ru'),
-        supabase.from('fuel_types').select('id,code,name_uz,name_ru'),
+        supabase.from('departments').select('id,name_uz'),
+        supabase.from('sections').select('id,name_uz'),
+        supabase.from('vehicles').select('id,code,name_uz'),
+        supabase.from('fuel_types').select('id,code,name_uz'),
         supabase.from('user_roles').select('user_id,role'),
       ]);
       setRows((a.data ?? []) as AuditLog[]);
@@ -70,9 +70,9 @@ export function AuditPage() {
     })();
   }, []);
 
-  const ln = (row: { name_uz?: string | null; name_ru?: string | null } | undefined) => {
+  const ln = (row: { name_uz?: string | null } | undefined) => {
     if (!row) return '—';
-    return (lang === 'uz' ? row.name_uz : row.name_ru) || row.name_uz || row.name_ru || '—';
+    return row.name_uz || '—';
   };
 
   const userName = (uid: string | null) => {
@@ -87,7 +87,7 @@ export function AuditPage() {
   };
 
   const describe = (r: AuditRow): string => {
-    const d = r.details || {};
+    const d = (r.details || {}) as Record<string, string>;
     const act = normalizeAction(r.action);
     const tbl = r.table_name;
     const dept = d.department_id ? ln(depts[d.department_id]) : null;
@@ -163,7 +163,7 @@ export function AuditPage() {
     out = out.sort((a, b) => sortDesc ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at));
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, fAction, fUser, fDept, fRole, dateFrom, dateTo, search, sortDesc, profiles, rolesMap, depts, vehs, fuels, secs, lang]);
+  }, [rows, fAction, fUser, fDept, fRole, dateFrom, dateTo, search, sortDesc, profiles, rolesMap, depts, vehs, fuels, secs]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);

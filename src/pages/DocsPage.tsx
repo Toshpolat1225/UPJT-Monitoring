@@ -2,120 +2,81 @@ import { useMemo, useState } from 'react';
 import { useI18n } from '../lib/i18n';
 import { BookOpen, Code2, Search } from 'lucide-react';
 
-type Article = { id: string; title: { uz: string; ru: string }; body: { uz: string; ru: string } };
+type Article = { id: string; title: string; body: string };
 
 const userArticles: Article[] = [
   {
     id: 'overview',
-    title: { uz: "Tizim haqida", ru: "Tizim haqida" },
-    body: {
-      uz: "Yoqilg'i sarfi — UPJT bo'yicha yoqilg'ining kunlik harakati, limit va faktini hisobga oluvchi monitoring tizimi. Asosiy maqsad: har bir texnika va bo'lim bo'yicha sarfni nazorat qilish, limitdan oshishni aniqlash, hisobotlarni avtomatlashtirish.",
-      ru: "Yoqilg'i sarfi — UPJT bo'yicha yoqilg'ining kunlik harakati, limit va faktini hisobga oluvchi monitoring tizimi. Asosiy maqsad: har bir texnika va bo'lim bo'yicha sarfni nazorat qilish, limitdan oshishni aniqlash, hisobotlarni avtomatlashtirish.",
-    },
+    title: "Tizim haqida",
+    body: "Yoqilg'i sarfi — UPJT bo'yicha yoqilg'ining kunlik harakati, limit va faktini hisobga oluvchi monitoring tizimi. Asosiy maqsad: har bir texnika va bo'lim bo'yicha sarfni nazorat qilish, limitdan oshishni aniqlash, hisobotlarni avtomatlashtirish.",
   },
   {
     id: 'hierarchy',
-    title: { uz: 'Iyerarxiya', ru: 'Iyerarxiya' },
-    body: {
-      uz: "Yoqilg'i turi → Sex (Department) → Bo'lim (Subdivision) → Texnika (Vehicle). Sex jamlamasi — uning bo'limlari yig'indisi. Bo'lim jamlamasi — texnika kiritmalari yig'indisi.",
-      ru: "Yoqilg'i turi → Sex (Department) → Bo'lim (Subdivision) → Texnika (Vehicle). Sex jamlamasi — uning bo'limlari yig'indisi. Bo'lim jamlamasi — texnika kiritmalari yig'indisi.",
-    },
+    title: 'Iyerarxiya',
+    body: "Yoqilg'i turi → Sex (Department) → Bo'lim (Subdivision) → Texnika (Vehicle). Sex jamlamasi — uning bo'limlari yig'indisi. Bo'lim jamlamasi — texnika kiritmalari yig'indisi.",
   },
   {
     id: 'day',
-    title: { uz: 'Operativ kun (07:00–07:00)', ru: 'Operativ kun (07:00–07:00)' },
-    body: {
-      uz: "Hisobot kuni soat 07:00 dan keyingi kunning 07:00 gacha. Barcha kunlik kiritishlar shu davrga tegishli.",
-      ru: "Hisobot kuni soat 07:00 dan keyingi kunning 07:00 gacha. Barcha kunlik kiritishlar shu davrga tegishli.",
-    },
+    title: 'Operativ kun (07:00–07:00)',
+    body: "Hisobot kuni soat 07:00 dan keyingi kunning 07:00 gacha. Barcha kunlik kiritishlar shu davrga tegishli.",
   },
   {
     id: 'entries',
-    title: { uz: 'Kunlik kiritish', ru: 'Kunlik kiritish' },
-    body: {
-      uz: "Har bir texnika uchun: boshlang'ich qoldiq, AYOQSHdan qabul, boshqalardan qabul, boshqalarga uzatildi, sarf (fakt), yakuniy qoldiq. Yakuniy qoldiq = boshlang'ich + qabul − uzatish − sarf.",
-      ru: "Har bir texnika uchun: boshlang'ich qoldiq, AYOQSHdan qabul, boshqalardan qabul, boshqalarga uzatildi, sarf (fakt), yakuniy qoldiq. Yakuniy qoldiq = boshlang'ich + qabul − uzatish − sarf.",
-    },
+    title: 'Kunlik kiritish',
+    body: "Har bir texnika uchun: boshlang'ich qoldiq, AYOQSHdan qabul, boshqalardan qabul, boshqalarga uzatildi, sarf (fakt), yakuniy qoldiq. Yakuniy qoldiq = boshlang'ich + qabul − uzatish − sarf.",
   },
   {
     id: 'limits',
-    title: { uz: 'Limitlar', ru: 'Limitlar' },
-    body: {
-      uz: "Limit oylik tarzda Sex × Yoqilg'i turi (ixtiyoriy ravishda Bo'lim) bo'yicha kiritiladi. Kunlik limit = oylik / oydagi kunlar soni. Foiz = Fakt / Limit × 100.",
-      ru: "Limit oylik tarzda Sex × Yoqilg'i turi (ixtiyoriy ravishda Bo'lim) bo'yicha kiritiladi. Kunlik limit = oylik / oydagi kunlar soni. Foiz = Fakt / Limit × 100.",
-    },
+    title: 'Limitlar',
+    body: "Limit oylik tarzda Sex × Yoqilg'i turi (ixtiyoriy ravishda Bo'lim) bo'yicha kiritiladi. Kunlik limit = oylik / oydagi kunlar soni. Foiz = Fakt / Limit × 100.",
   },
   {
     id: 'dashboard',
-    title: { uz: 'Boshqaruv paneli', ru: 'Boshqaruv paneli' },
-    body: {
-      uz: "Bugungi va oylik fakt, limit, og'ish va foiz; sex/bo'lim/yoqilg'i turi kesimida diagrammalar; drill-down: Yoqilg'i → Sex → Bo'lim.",
-      ru: "Bugungi va oylik fakt, limit, og'ish va foiz; sex/bo'lim/yoqilg'i turi kesimida diagrammalar; drill-down: Yoqilg'i → Sex → Bo'lim.",
-    },
+    title: 'Boshqaruv paneli',
+    body: "Bugungi va oylik fakt, limit, og'ish va foiz; sex/bo'lim/yoqilg'i turi kesimida diagrammalar; drill-down: Yoqilg'i → Sex → Bo'lim.",
   },
   {
     id: 'alerts',
-    title: { uz: 'Ogohlantirishlar', ru: 'Ogohlantirishlar' },
-    body: {
-      uz: "Limitning 80% yetganda — ogohlantirish; 100% dan oshganda — overlimit. Dashboardda alohida bloklar.",
-      ru: "Limitning 80% yetganda — ogohlantirish; 100% dan oshganda — overlimit. Dashboardda alohida bloklar.",
-    },
+    title: 'Ogohlantirishlar',
+    body: "Limitning 80% yetganda — ogohlantirish; 100% dan oshganda — overlimit. Dashboardda alohida bloklar.",
   },
   {
     id: 'audit',
-    title: { uz: 'Audit jurnali', ru: 'Audit jurnali' },
-    body: {
-      uz: "Barcha CREATE/UPDATE/DELETE amallari foydalanuvchi, vaqt va o'zgarishlar bilan saqlanadi. Admin/GSM/Operator ko'ra oladi.",
-      ru: "Barcha CREATE/UPDATE/DELETE amallari foydalanuvchi, vaqt va o'zgarishlar bilan saqlanadi. Admin/GSM/Operator ko'ra oladi.",
-    },
+    title: 'Audit jurnali',
+    body: "Barcha CREATE/UPDATE/DELETE amallari foydalanuvchi, vaqt va o'zgarishlar bilan saqlanadi. Admin/GSM/Operator ko'ra oladi.",
   },
   {
     id: 'roles',
-    title: { uz: 'Rollar va ruxsatlar', ru: 'Rollar va ruxsatlar' },
-    body: {
-      uz: "admin — to'liq boshqaruv. gsm — limitlar va yozuvlar. operator — yozuvlar va ma'lumotnomalar. master — faqat o'z sexining yozuvlari. management — faqat dashboard ko'rish.",
-      ru: "admin — to'liq boshqaruv. gsm — limitlar va yozuvlar. operator — yozuvlar va ma'lumotnomalar. master — faqat o'z sexining yozuvlari. management — faqat dashboard ko'rish.",
-    },
+    title: 'Rollar va ruxsatlar',
+    body: "admin — to'liq boshqaruv. gsm — limitlar va yozuvlar. operator — yozuvlar va ma'lumotnomalar. master — faqat o'z sexining yozuvlari. management — faqat dashboard ko'rish.",
   },
 ];
 
 const devArticles: Article[] = [
   {
     id: 'arch',
-    title: { uz: 'Arxitektura', ru: 'Arxitektura' },
-    body: {
-      uz: "Frontend: React + Vite + Tailwind CSS. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: Supabase (PostgreSQL) + RLS. Auth: Supabase Auth.",
-      ru: "Frontend: React + Vite + Tailwind CSS. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: Supabase (PostgreSQL) + RLS. Auth: Supabase Auth.",
-    },
+    title: 'Arxitektura',
+    body: "Frontend: React + Vite + Tailwind CSS. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: Supabase (PostgreSQL) + RLS. Auth: Supabase Auth.",
   },
   {
     id: 'schema',
-    title: { uz: "Ma'lumotlar bazasi sxemasi", ru: "Ma'lumotlar bazasi sxemasi" },
-    body: {
-      uz: "Jadvallar: departments, sections, fuel_types, vehicles, profiles, user_roles, monthly_limits, daily_entries, audit_log, role_permissions. Enumlar: app_role, fuel_unit.",
-      ru: "Jadvallar: departments, sections, fuel_types, vehicles, profiles, user_roles, monthly_limits, daily_entries, audit_log, role_permissions. Enumlar: app_role, fuel_unit.",
-    },
+    title: "Ma'lumotlar bazasi sxemasi",
+    body: "Jadvallar: departments, sections, fuel_types, vehicles, profiles, user_roles, monthly_limits, daily_entries, audit_log, role_permissions. Enumlar: app_role, fuel_unit.",
   },
   {
     id: 'rls',
-    title: { uz: 'RLS siyosati', ru: 'RLS siyosati' },
-    body: {
-      uz: "Barcha jadvallarda RLS yoqilgan. has_role() funksiyasi orqali rol tekshiruvi. Master roli faqat o'z sexining ma'lumotlarini ko'radi.",
-      ru: "Barcha jadvallarda RLS yoqilgan. has_role() funksiyasi orqali rol tekshiruvi. Master roli faqat o'z sexining ma'lumotlarini ko'radi.",
-    },
+    title: 'RLS siyosati',
+    body: "Barcha jadvallarda RLS yoqilgan. has_role() funksiyasi orqali rol tekshiruvi. Master roli faqat o'z sexining ma'lumotlarini ko'radi.",
   },
   {
     id: 'triggers',
-    title: { uz: 'Triggerlar', ru: 'Triggerlar' },
-    body: {
-      uz: "handle_new_user — yangi foydalanuvchi uchun profil yaratish. log_daily_entry_changes — daily_entries o'zgarishlarini audit_log'ga yozish. set_updated_at — updated_at maydonini avtomatik yangilash.",
-      ru: "handle_new_user — yangi foydalanuvchi uchun profil yaratish. log_daily_entry_changes — daily_entries o'zgarishlarini audit_log'ga yozish. set_updated_at — updated_at maydonini avtomatik yangilash.",
-    },
+    title: 'Triggerlar',
+    body: "handle_new_user — yangi foydalanuvchi uchun profil yaratish. log_daily_entry_changes — daily_entries o'zgarishlarini audit_log'ga yozish. set_updated_at — updated_at maydonini avtomatik yangilash.",
   },
 ];
 
 export function DocsPage() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const [tab, setTab] = useState<'user' | 'dev'>('user');
   const [search, setSearch] = useState('');
   const [openItems, setOpenItems] = useState<Record<string, boolean>>({});
@@ -126,11 +87,11 @@ export function DocsPage() {
     if (!search) return articles;
     const q = search.toLowerCase();
     return articles.filter((a) => {
-      const title = (lang === 'uz' ? a.title.uz : a.title.ru).toLowerCase();
-      const body = (lang === 'uz' ? a.body.uz : a.body.ru).toLowerCase();
+      const title = a.title.toLowerCase();
+      const body = a.body.toLowerCase();
       return title.includes(q) || body.includes(q);
     });
-  }, [articles, search, lang]);
+  }, [articles, search]);
 
   const toggle = (id: string) => setOpenItems((p) => ({ ...p, [id]: !p[id] }));
 
@@ -166,12 +127,12 @@ export function DocsPage() {
                 onClick={() => toggle(a.id)}
                 className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30"
               >
-                <span className="font-medium text-foreground">{lang === 'uz' ? a.title.uz : a.title.ru}</span>
+                <span className="font-medium text-foreground">{a.title}</span>
                 <span className="text-muted-foreground">{isOpen ? '−' : '+'}</span>
               </button>
               {isOpen && (
                 <div className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
-                  {lang === 'uz' ? a.body.uz : a.body.ru}
+                  {a.body}
                 </div>
               )}
             </div>

@@ -14,7 +14,6 @@ import {
 import { AlertTriangle, TrendingUp, Fuel, Gauge, Printer } from 'lucide-react';
 import { supabase, type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry, fetchEnabledFuelKeys } from '../lib/supabase';
 import { useI18n, formatUnit } from '../lib/i18n';
-import { useAuth } from '../context/AuthContext';
 
 // ============================================================
 // Types
@@ -50,8 +49,8 @@ const PAGE_SIZE = 1000;
 const safePct = (fact: number, lim: number): number => (lim > 0 ? (fact / lim) * 100 : 0);
 const ceilPct = (fact: number, lim: number): number => (lim > 0 ? Math.ceil((fact / lim) * 100) : 0);
 
-/** Format a number with ru-RU grouping (rounded). */
-const fmt = (n: number): string => (Number.isFinite(n) ? Math.round(n).toLocaleString('ru-RU') : '0');
+/** Format a number with Uzbek grouping (rounded). */
+const fmt = (n: number): string => (Number.isFinite(n) ? Math.round(n).toLocaleString('uz-UZ') : '0');
 
 /** Format a percentage, or em-dash if not finite / non-positive. */
 const fmtPct = (n: number): string => (Number.isFinite(n) && n > 0 ? `${Math.round(n)}%` : '—');
@@ -66,15 +65,13 @@ const dateStr = (year: number, month: number, day: number): string => {
   return `${year}-${m}-${d}`;
 };
 
-/** Yesterday's date string (YYYY-MM-DD). */
 const yesterdayStr = (): string => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
 };
 
-/** Today's date string (YYYY-MM-DD). */
-const todayStr = (): string => new Date().toISOString().slice(0, 10);
+
 
 // ============================================================
 // Component
@@ -101,7 +98,7 @@ export function DashboardPage() {
   const month = useMemo(() => new Date(dateTo + 'T00:00:00').getMonth(), [dateTo]);
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [sections, setSections] = useState<Section[]>([]);
+  const [, setSections] = useState<Section[]>([]);
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
   const [limits, setLimits] = useState<MonthlyLimit[]>([]);
   const [entries, setEntries] = useState<DailyEntry[]>([]);
@@ -138,7 +135,7 @@ export function DashboardPage() {
     (async () => {
       const [{ data: depts }, { data: secs }, { data: fuels }, fuelKeys] = await Promise.all([
         supabase.from('departments').select('*').order('code'),
-        supabase.from('sections').select('*').order('name_ru'),
+        supabase.from('sections').select('*').order('name_uz'),
         supabase.from('fuel_types').select('*').order('code'),
         fetchEnabledFuelKeys(),
       ]);
@@ -301,12 +298,6 @@ export function DashboardPage() {
     return dateStr(year, month, daysInMonth(year, month));
   }, [isCurrentMonth, year, month]);
 
-  /** The yesterday date string for the selected period (for the "Yesterday" column). */
-  const yesterdayDate = useMemo(() => {
-    if (isCurrentMonth) return yesterdayStr();
-    return dateStr(year, month, daysInMonth(year, month));
-  }, [isCurrentMonth, year, month]);
-
   /** Number of selected calendar days in the date range. */
   const selectedDays = useMemo(() => {
     const start = new Date(dateFrom + 'T00:00:00');
@@ -335,24 +326,10 @@ export function DashboardPage() {
     return result;
   }, [fuelTypes]);
 
-  const fuelById = useMemo(() => {
-    const m: Record<string, FuelType> = {};
-    for (const f of fuelTypes) m[f.id] = f;
-    return m;
-  }, [fuelTypes]);
-
   // --------------------------------------------------------
   // Derived: departments (non-total) + sections grouped
   // --------------------------------------------------------
   const realDepartments = useMemo(() => departments.filter((d) => !d.is_total), [departments]);
-
-  const sectionsByDept = useMemo(() => {
-    const m: Record<string, Section[]> = {};
-    for (const s of sections) {
-      (m[s.department_id] ??= []).push(s);
-    }
-    return m;
-  }, [sections]);
 
   const isFuelEnabled = useCallback(
     (deptId: string, fuelTypeId: string): boolean => enabledFuels.has(`${deptId}|${fuelTypeId}`),
@@ -390,13 +367,6 @@ export function DashboardPage() {
     }
     return m;
   }, [entries]);
-
-  /** Yesterday's consumption for a key. */
-  const getYesterday = useCallback(
-    (deptId: string, sectionId: string | null, fuelTypeId: string): number =>
-      consumptionByDay[`${deptId}|${sectionId ?? ''}|${fuelTypeId}`]?.[yesterdayDate] ?? 0,
-    [consumptionByDay, yesterdayDate],
-  );
 
   /** MTD consumption (up to and including mtdCutoff) for a key. */
   const getMtd = useCallback(
@@ -698,7 +668,7 @@ export function DashboardPage() {
         <p className="mt-1 text-sm text-black">{t('printDashSubtitle')}</p>
         <p className="mt-0.5 text-sm font-semibold text-black">{t('printDashTitle')}</p>
         <p className="mt-0.5 text-sm text-black">
-          {t('printDate')}: {new Date().toLocaleDateString('ru-RU')} {new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+          {t('printDate')}: {new Date().toLocaleDateString('uz-UZ')} {new Date().toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
         </p>
         <hr className="mt-3 mb-4 border-black" />
       </div>

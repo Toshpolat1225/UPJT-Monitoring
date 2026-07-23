@@ -34,10 +34,6 @@ const MONTH_NAMES_UZ = [
   'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
 ];
-const MONTH_NAMES_RU = [
-  'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
-  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
-];
 
 /** Build the canonical value-map key for a cell. */
 function cellKey(departmentId: string, sectionId: string | null, fuelTypeId: string): ValueKey {
@@ -74,7 +70,7 @@ export function LimitsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const monthNames = lang === 'uz' ? MONTH_NAMES_UZ : MONTH_NAMES_RU;
+  const monthNames = lang === 'uz' ? MONTH_NAMES_UZ : MONTH_NAMES_UZ;
 
   // --- Load reference data once -----------------------------------------
   useEffect(() => {
@@ -506,7 +502,7 @@ export function LimitsPage() {
                         {value && Number(value) > 0 && (
                           <div className="mt-1 text-center text-[10px] text-muted-foreground">
                             {'Kunlik:'}{' '}
-                            {(Number(value) / daysInMonth(year, month)).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}
+                            {(Number(value) / daysInMonth(year, month)).toLocaleString('uz-UZ', { maximumFractionDigits: 1 })}
                           </div>
                         )}
                       </td>

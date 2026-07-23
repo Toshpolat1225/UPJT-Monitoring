@@ -12,8 +12,8 @@ audit logging and role-based access control.
 - `fuel_unit`: litr, m3
 
 ## New Tables
-1. `departments` — organisational units (e.g. ЖДЦ-2, СЦБ). `is_total` flags the
-   roll-up "UPJT" row. Multilingual: name_uz + name_ru.
+1. `departments` — organisational units. `is_total` flags the
+   roll-up "UPJT" row. Uzbek-only: name_uz.
 2. `sections` — subdivisions within a department.
 3. `fuel_types` — diesel, petrol, SPG. Has a unit (litr or m3).
 4. `vehicles` — transport units assigned to a department + fuel type.
@@ -75,7 +75,6 @@ CREATE TABLE IF NOT EXISTS public.departments (
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   name_uz TEXT NOT NULL DEFAULT '',
-  name_ru TEXT NOT NULL DEFAULT '',
   is_total BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -85,7 +84,6 @@ CREATE TABLE IF NOT EXISTS public.sections (
   department_id UUID NOT NULL REFERENCES public.departments(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   name_uz TEXT NOT NULL DEFAULT '',
-  name_ru TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -94,7 +92,6 @@ CREATE TABLE IF NOT EXISTS public.fuel_types (
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   name_uz TEXT NOT NULL DEFAULT '',
-  name_ru TEXT NOT NULL DEFAULT '',
   unit public.fuel_unit NOT NULL DEFAULT 'litr',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -104,7 +101,6 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   code TEXT NOT NULL,
   name TEXT NOT NULL,
   name_uz TEXT NOT NULL DEFAULT '',
-  name_ru TEXT NOT NULL DEFAULT '',
   department_id UUID NOT NULL REFERENCES public.departments(id) ON DELETE RESTRICT,
   fuel_type_id UUID NOT NULL REFERENCES public.fuel_types(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -403,21 +399,21 @@ REVOKE ALL ON FUNCTION public.log_daily_entry_changes() FROM PUBLIC, anon, authe
 -- ============================================================
 -- SEED DATA
 -- ============================================================
-INSERT INTO public.departments (code, name, name_uz, name_ru, is_total) VALUES
-('JDC-2','ЖДЦ-2','ЖДЦ-2','ЖДЦ-2',false),
-('JDC-3','ЖДЦ-3','ЖДЦ-3','ЖДЦ-3',false),
-('JDC-4','ЖДЦ-4','ЖДЦ-4','ЖДЦ-4',false),
-('SCB','СЦБ и связи','СЦБ и связи','СЦБ и связи',false),
-('KS','Служба К/С','Служба К/С','Служба К/С',false),
-('SPTO','СПТО','СПТО','СПТО',false),
-('SE','СЭ','СЭ','СЭ',false),
-('UPJT','УПЖТ (TOTAL)','УПЖТ (TOTAL)','УПЖТ (TOTAL)',true)
+INSERT INTO public.departments (code, name, name_uz, is_total) VALUES
+('JDC-2','JDTs-2','JDTs-2',false),
+('JDC-3','JDTs-3','JDTs-3',false),
+('JDC-4','JDTs-4','JDTs-4',false),
+('SCB','SCB va aloqa','SCB va aloqa',false),
+('KS','K/X xizmati','K/X xizmati',false),
+('SPTO','SPTO','SPTO',false),
+('SE','SE','SE',false),
+('UPJT','UPJT (JAMI)','UPJT (JAMI)',true)
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO public.fuel_types (code, name, name_uz, name_ru, unit) VALUES
-('DIESEL','Дизельное топливо','Дизельное топливо','Дизельное топливо','litr'),
-('PETROL','Бензин','Бензин','Бензин','litr'),
-('SPG','СПГ','СПГ','СПГ','m3')
+INSERT INTO public.fuel_types (code, name, name_uz, unit) VALUES
+('DIESEL','Dizel yoqilg\'isi','Dizel yoqilg\'isi','litr'),
+('PETROL','Benzin','Benzin','litr'),
+('SPG','SPG','SPG','m3')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO public.role_permissions (role, module, permission, allowed) VALUES

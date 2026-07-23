@@ -10,5 +10,4 @@ class Section(Base):
     department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
     name_uz = Column(Text, nullable=False, default="")
-    name_ru = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

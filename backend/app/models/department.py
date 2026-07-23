@@ -10,6 +10,5 @@ class Department(Base):
     code = Column(Text, nullable=False, unique=True)
     name = Column(Text, nullable=False)
     name_uz = Column(Text, nullable=False, default="")
-    name_ru = Column(Text, nullable=False, default="")
     is_total = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

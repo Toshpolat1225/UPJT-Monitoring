@@ -1,4 +1,3 @@
-import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../lib/i18n';
 import { Fuel, BarChart3, Shield, Truck } from 'lucide-react';
 

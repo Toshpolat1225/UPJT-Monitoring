@@ -10,7 +10,6 @@ class Vehicle(Base):
     code = Column(Text, nullable=False)
     name = Column(Text, nullable=False)
     name_uz = Column(Text, nullable=False, default="")
-    name_ru = Column(Text, nullable=False, default="")
     department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id", ondelete="RESTRICT"), nullable=False)
     fuel_type_id = Column(UUID(as_uuid=True), ForeignKey("fuel_types.id", ondelete="RESTRICT"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

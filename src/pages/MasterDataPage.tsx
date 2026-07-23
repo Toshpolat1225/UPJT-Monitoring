@@ -23,7 +23,6 @@ type TabKey = 'companies' | 'departments' | 'sections' | 'vehicles' | 'fuel_type
 interface DepartmentForm {
   code: string;
   name_uz: string;
-  name_ru: string;
   is_total: boolean;
   company_id: string;
 }
@@ -34,26 +33,22 @@ interface CompanyForm {
 interface SectionForm {
   department_id: string;
   name_uz: string;
-  name_ru: string;
 }
 interface VehicleForm {
   code: string;
   name_uz: string;
-  name_ru: string;
   department_id: string;
   fuel_type_id: string;
 }
 interface FuelTypeForm {
   code: string;
   name_uz: string;
-  name_ru: string;
   unit: FuelUnit;
 }
 
 const EMPTY_DEPARTMENT_FORM: DepartmentForm = {
   code: '',
   name_uz: '',
-  name_ru: '',
   is_total: false,
   company_id: '',
 };
@@ -64,19 +59,16 @@ const EMPTY_COMPANY_FORM: CompanyForm = {
 const EMPTY_SECTION_FORM: SectionForm = {
   department_id: '',
   name_uz: '',
-  name_ru: '',
 };
 const EMPTY_VEHICLE_FORM: VehicleForm = {
   code: '',
   name_uz: '',
-  name_ru: '',
   department_id: '',
   fuel_type_id: '',
 };
 const EMPTY_FUEL_TYPE_FORM: FuelTypeForm = {
   code: '',
   name_uz: '',
-  name_ru: '',
   unit: 'litr',
 };
 
@@ -419,7 +411,6 @@ export function MasterDataPage() {
           setDeptForm({
             code: d.code ?? '',
             name_uz: d.name_uz ?? '',
-            name_ru: d.name_ru ?? '',
             is_total: !!d.is_total,
             company_id: d.company_id ?? '',
           });
@@ -431,7 +422,6 @@ export function MasterDataPage() {
           setSectionForm({
             department_id: s.department_id ?? '',
             name_uz: s.name_uz ?? '',
-            name_ru: s.name_ru ?? '',
           });
         break;
       }
@@ -441,7 +431,6 @@ export function MasterDataPage() {
           setVehicleForm({
             code: v.code ?? '',
             name_uz: v.name_uz ?? '',
-            name_ru: v.name_ru ?? '',
             department_id: v.department_id ?? '',
             fuel_type_id: v.fuel_type_id ?? '',
           });
@@ -453,7 +442,6 @@ export function MasterDataPage() {
           setFuelTypeForm({
             code: f.code ?? '',
             name_uz: f.name_uz ?? '',
-            name_ru: f.name_ru ?? '',
             unit: f.unit ?? 'litr',
           });
         break;
@@ -488,7 +476,6 @@ export function MasterDataPage() {
         const payload = {
           code: deptForm.code.trim(),
           name_uz: deptForm.name_uz.trim(),
-          name_ru: deptForm.name_ru.trim(),
           name: deptForm.name_uz.trim(),
           is_total: deptForm.is_total,
           company_id: deptForm.company_id || null,
@@ -502,7 +489,6 @@ export function MasterDataPage() {
         const payload = {
           department_id: sectionForm.department_id,
           name_uz: sectionForm.name_uz.trim(),
-          name_ru: sectionForm.name_ru.trim(),
           name: sectionForm.name_uz.trim(),
         };
         const op = editingId
@@ -514,7 +500,6 @@ export function MasterDataPage() {
         const payload = {
           code: vehicleForm.code.trim(),
           name_uz: vehicleForm.name_uz.trim(),
-          name_ru: vehicleForm.name_ru.trim(),
           name: vehicleForm.name_uz.trim(),
           department_id: vehicleForm.department_id,
           fuel_type_id: vehicleForm.fuel_type_id,
@@ -528,7 +513,6 @@ export function MasterDataPage() {
         const payload = {
           code: fuelTypeForm.code.trim(),
           name_uz: fuelTypeForm.name_uz.trim(),
-          name_ru: fuelTypeForm.name_ru.trim(),
           name: fuelTypeForm.name_uz.trim(),
           unit: fuelTypeForm.unit,
         };
@@ -733,7 +717,6 @@ export function MasterDataPage() {
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('code')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameUz')}</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameRu')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('company')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('total')}</th>
                       {isAdmin && <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{t('actions')}</th>}
@@ -747,7 +730,6 @@ export function MasterDataPage() {
                         <tr key={d.id} className="transition hover:bg-muted/30">
                           <td className="px-4 py-3 text-sm font-medium text-foreground">{d.code}</td>
                           <td className="px-4 py-3 text-sm text-foreground">{d.name_uz}</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">{d.name_ru}</td>
                           <td className="px-4 py-3 text-sm text-muted-foreground">{companies.find((c) => c.id === d.company_id)?.short_name ?? '—'}</td>
                           <td className="px-4 py-3 text-sm">
                             {d.is_total ? (
@@ -800,7 +782,6 @@ export function MasterDataPage() {
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('department')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameUz')}</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameRu')}</th>
                       {isAdmin && <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{t('actions')}</th>}
                     </tr>
                   </thead>
@@ -814,7 +795,6 @@ export function MasterDataPage() {
                             {ln(departmentName(s.department_id))}
                           </td>
                           <td className="px-4 py-3 text-sm font-medium text-foreground">{s.name_uz}</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">{s.name_ru}</td>
                           {isAdmin && (
                             <td className="px-4 py-3">
                               <div className="flex justify-end gap-1.5">
@@ -857,7 +837,6 @@ export function MasterDataPage() {
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('code')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameUz')}</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameRu')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('department')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('fuelType')}</th>
                       {isAdmin && <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{t('actions')}</th>}
@@ -871,7 +850,6 @@ export function MasterDataPage() {
                         <tr key={v.id} className="transition hover:bg-muted/30">
                           <td className="px-4 py-3 text-sm font-medium text-foreground">{v.code}</td>
                           <td className="px-4 py-3 text-sm text-foreground">{v.name_uz}</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">{v.name_ru}</td>
                           <td className="px-4 py-3 text-sm text-muted-foreground">
                             {ln(departmentName(v.department_id))}
                           </td>
@@ -980,7 +958,6 @@ export function MasterDataPage() {
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('code')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameUz')}</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('nameRu')}</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">{t('unit')}</th>
                       {isAdmin && <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">{t('actions')}</th>}
                     </tr>
@@ -993,7 +970,6 @@ export function MasterDataPage() {
                         <tr key={f.id} className="transition hover:bg-muted/30">
                           <td className="px-4 py-3 text-sm font-medium text-foreground">{f.code}</td>
                           <td className="px-4 py-3 text-sm text-foreground">{f.name_uz}</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">{f.name_ru}</td>
                           <td className="px-4 py-3 text-sm">
                             <span className="inline-flex items-center rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
                               {formatUnit(f.unit, lang)}
@@ -1082,14 +1058,6 @@ export function MasterDataPage() {
                   className={inputClass}
                 />
               </Field>
-              <Field label={t('nameRu')}>
-                <input
-                  type="text"
-                  value={deptForm.name_ru}
-                  onChange={(e) => setDeptForm((f) => ({ ...f, name_ru: e.target.value }))}
-                  className={inputClass}
-                />
-              </Field>
               <Field label={t('company')}>
                 <select
                   value={deptForm.company_id}
@@ -1143,14 +1111,6 @@ export function MasterDataPage() {
                   className={inputClass}
                 />
               </Field>
-              <Field label={t('nameRu')}>
-                <input
-                  type="text"
-                  value={sectionForm.name_ru}
-                  onChange={(e) => setSectionForm((f) => ({ ...f, name_ru: e.target.value }))}
-                  className={inputClass}
-                />
-              </Field>
             </>
           )}
 
@@ -1172,14 +1132,6 @@ export function MasterDataPage() {
                   value={vehicleForm.name_uz}
                   onChange={(e) => setVehicleForm((f) => ({ ...f, name_uz: e.target.value }))}
                   required
-                  className={inputClass}
-                />
-              </Field>
-              <Field label={t('nameRu')}>
-                <input
-                  type="text"
-                  value={vehicleForm.name_ru}
-                  onChange={(e) => setVehicleForm((f) => ({ ...f, name_ru: e.target.value }))}
                   className={inputClass}
                 />
               </Field>
@@ -1238,14 +1190,6 @@ export function MasterDataPage() {
                   value={fuelTypeForm.name_uz}
                   onChange={(e) => setFuelTypeForm((f) => ({ ...f, name_uz: e.target.value }))}
                   required
-                  className={inputClass}
-                />
-              </Field>
-              <Field label={t('nameRu')}>
-                <input
-                  type="text"
-                  value={fuelTypeForm.name_ru}
-                  onChange={(e) => setFuelTypeForm((f) => ({ ...f, name_ru: e.target.value }))}
                   className={inputClass}
                 />
               </Field>

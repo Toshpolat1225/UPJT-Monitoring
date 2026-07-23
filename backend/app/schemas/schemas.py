@@ -47,14 +47,12 @@ class Token(BaseModel):
 class DepartmentCreate(BaseModel):
     code: str
     name_uz: str
-    name_ru: str
     is_total: bool = False
 
 
 class DepartmentUpdate(BaseModel):
     code: Optional[str] = None
     name_uz: Optional[str] = None
-    name_ru: Optional[str] = None
     is_total: Optional[bool] = None
 
 
@@ -63,7 +61,6 @@ class DepartmentResponse(BaseModel):
     code: str
     name: str
     name_uz: str
-    name_ru: str
     is_total: bool
     created_at: datetime
 
@@ -75,13 +72,11 @@ class DepartmentResponse(BaseModel):
 class SectionCreate(BaseModel):
     department_id: str
     name_uz: str
-    name_ru: str
 
 
 class SectionUpdate(BaseModel):
     department_id: Optional[str] = None
     name_uz: Optional[str] = None
-    name_ru: Optional[str] = None
 
 
 class SectionResponse(BaseModel):
@@ -89,7 +84,6 @@ class SectionResponse(BaseModel):
     department_id: str
     name: str
     name_uz: str
-    name_ru: str
     created_at: datetime
 
     class Config:
@@ -100,14 +94,12 @@ class SectionResponse(BaseModel):
 class FuelTypeCreate(BaseModel):
     code: str
     name_uz: str
-    name_ru: str
     unit: str = "litr"
 
 
 class FuelTypeUpdate(BaseModel):
     code: Optional[str] = None
     name_uz: Optional[str] = None
-    name_ru: Optional[str] = None
     unit: Optional[str] = None
 
 
@@ -116,7 +108,6 @@ class FuelTypeResponse(BaseModel):
     code: str
     name: str
     name_uz: str
-    name_ru: str
     unit: str
     created_at: datetime
 
@@ -128,7 +119,6 @@ class FuelTypeResponse(BaseModel):
 class VehicleCreate(BaseModel):
     code: str
     name_uz: str
-    name_ru: str
     department_id: str
     fuel_type_id: str
 
@@ -136,7 +126,6 @@ class VehicleCreate(BaseModel):
 class VehicleUpdate(BaseModel):
     code: Optional[str] = None
     name_uz: Optional[str] = None
-    name_ru: Optional[str] = None
     department_id: Optional[str] = None
     fuel_type_id: Optional[str] = None
 
@@ -146,7 +135,6 @@ class VehicleResponse(BaseModel):
     code: str
     name: str
     name_uz: str
-    name_ru: str
     department_id: str
     fuel_type_id: str
     created_at: datetime

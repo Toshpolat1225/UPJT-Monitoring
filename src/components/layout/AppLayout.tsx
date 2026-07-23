@@ -44,8 +44,8 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps) {
-  const { profile, roles, signOut, hasAny } = useAuth();
-  const { t, lang, setLang } = useI18n();
+  const { profile, roles, signOut } = useAuth();
+  const { t } = useI18n();
   const { theme, toggle } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -132,25 +132,7 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
-            <div className="hidden inline-flex rounded-md border border-border p-0.5">
-              <button
-                onClick={() => setLang('uz')}
-                className={`rounded px-2.5 py-1 text-xs transition-colors ${
-                  lang === 'uz' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-                }`}
-              >
-                UZ
-              </button>
-              <button
-                onClick={() => setLang('ru')}
-                className={`rounded px-2.5 py-1 text-xs transition-colors ${
-                  lang === 'ru' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-                }`}
-              >
-                RU
-              </button>
-            </div>
+            </button>
           </div>
         </header>
         <main className="p-6">{children}</main>

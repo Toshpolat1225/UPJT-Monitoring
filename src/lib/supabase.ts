@@ -45,7 +45,6 @@ export interface Department {
   code: string;
   name: string;
   name_uz: string;
-  name_ru: string;
   is_total: boolean;
   company_id: string | null;
   created_at: string;
@@ -56,7 +55,6 @@ export interface Section {
   department_id: string;
   name: string;
   name_uz: string;
-  name_ru: string;
   created_at: string;
 }
 
@@ -65,7 +63,6 @@ export interface FuelType {
   code: string;
   name: string;
   name_uz: string;
-  name_ru: string;
   unit: FuelUnit;
   created_at: string;
 }
@@ -75,7 +72,6 @@ export interface Vehicle {
   code: string;
   name: string;
   name_uz: string;
-  name_ru: string;
   department_id: string;
   fuel_type_id: string;
   created_at: string;

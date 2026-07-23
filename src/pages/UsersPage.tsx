@@ -10,7 +10,7 @@ const MODULES = ['entries', 'limits', 'master_data', 'users', 'audit'] as const;
 const PERMS = ['view', 'create', 'edit', 'delete'] as const;
 
 interface UserRoleRow { id: string; user_id: string; role: AppRole }
-interface Dept { id: string; name_uz: string; name_ru: string }
+interface Dept { id: string; name_uz: string }
 
 export function UsersPage() {
   const { t } = useI18n();
@@ -54,7 +54,7 @@ function UsersTab() {
     const [p, r, d, c] = await Promise.all([
       supabase.from('profiles').select('*'),
       supabase.from('user_roles').select('id,user_id,role'),
-      supabase.from('departments').select('id,name_uz,name_ru').order('name_uz'),
+      supabase.from('departments').select('id,name_uz').order('name_uz'),
       supabase.from('companies').select('*').order('short_name'),
     ]);
     setProfiles((p.data ?? []) as Profile[]);

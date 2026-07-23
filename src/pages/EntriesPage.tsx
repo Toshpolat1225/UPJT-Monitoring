@@ -21,10 +21,10 @@ import { computeFuelTotals } from '../lib/fuelTotals';
 // ============================================================
 
 interface EntryRow extends DailyEntry {
-  department?: Pick<Department, 'name_uz' | 'name_ru'> | null;
-  section?: Pick<Section, 'name_uz' | 'name_ru'> | null;
-  vehicle?: Pick<Vehicle, 'code' | 'name_uz' | 'name_ru'> | null;
-  fuel_type?: Pick<FuelType, 'name_uz' | 'name_ru' | 'unit'> | null;
+  department?: Pick<Department, 'name_uz' | 'name_uz'> | null;
+  section?: Pick<Section, 'name_uz' | 'name_uz'> | null;
+  vehicle?: Pick<Vehicle, 'code' | 'name_uz' | 'name_uz'> | null;
+  fuel_type?: Pick<FuelType, 'name_uz' | 'name_uz' | 'unit'> | null;
 }
 
 interface FormState {
@@ -53,7 +53,7 @@ const num = (v: string): number => {
 };
 
 const fmtNum = (n: number): string =>
-  Number.isFinite(n) ? n.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) : '0';
+  Number.isFinite(n) ? n.toLocaleString('uz-UZ', { maximumFractionDigits: 2 }) : '0';
 
 const fmtPct = (n: number): string =>
   Number.isFinite(n) ? `${Math.ceil(n)}%` : '0%';
@@ -129,7 +129,7 @@ export function EntriesPage() {
         fuelKeys,
       ] = await Promise.all([
         supabase.from('departments').select('*').order('code'),
-        supabase.from('sections').select('*').order('name_ru'),
+        supabase.from('sections').select('*').order('name_uz'),
         supabase.from('vehicles').select('*').order('code'),
         supabase.from('fuel_types').select('*').order('code'),
         fetchEnabledFuelKeys(),
@@ -151,7 +151,7 @@ export function EntriesPage() {
       let query = supabase
         .from('daily_entries')
         .select(
-          '*, department:departments(name_uz,name_ru), section:sections(name_uz,name_ru), vehicle:vehicles(code,name_uz,name_ru), fuel_type:fuel_types(name_uz,name_ru,unit)',
+          '*, department:departments(name_uz,name_uz), section:sections(name_uz,name_uz), vehicle:vehicles(code,name_uz,name_uz), fuel_type:fuel_types(name_uz,name_uz,unit)',
         )
         .gte('entry_date', filterDateFrom)
         .lte('entry_date', filterDateTo)
@@ -585,7 +585,7 @@ export function EntriesPage() {
       <div className="print-only hidden">
         <h1 className="text-xl font-bold text-black">{t('printReportTitle')}</h1>
         <p className="mt-1 text-sm text-black">
-          {t('printDate')}: {new Date().toLocaleDateString('ru-RU')} {new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+          {t('printDate')}: {new Date().toLocaleDateString('uz-UZ')} {new Date().toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
         </p>
         {activeFilters.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-black">

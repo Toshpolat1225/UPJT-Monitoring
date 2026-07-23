@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 
 export function AuthPage() {
   const { user, loading } = useAuth();
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -70,24 +70,6 @@ export function AuthPage() {
             </button>
           </form>
 
-          <div className="mt-4 hidden flex justify-center gap-2">
-            <button
-              onClick={() => setLang('uz')}
-              className={`rounded border border-border px-3 py-1 text-xs transition-colors ${
-                lang === 'uz' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-              }`}
-            >
-              UZ
-            </button>
-            <button
-              onClick={() => setLang('ru')}
-              className={`rounded border border-border px-3 py-1 text-xs transition-colors ${
-                lang === 'ru' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-              }`}
-            >
-              RU
-            </button>
-          </div>
 
           <p className="mt-4 text-center text-xs text-muted-foreground">
             Akkaunt faqat administrator tomonidan yaratiladi.
