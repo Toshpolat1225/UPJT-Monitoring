@@ -774,21 +774,6 @@ export function EntriesPage() {
                     <td className="px-3 py-2.5" colSpan={2} />
                   </tr>
                 ))}
-                {/* Grand total row */}
-                <tr className="border-t-2 border-border bg-muted/70 font-bold">
-                  <td className="px-3 py-3 text-foreground" colSpan={4}>
-                    {t('grandTotal')}
-                  </td>
-                  <td className="px-3 py-3 text-right text-foreground">{fmtNum(fuelTotals.grand.limit)}</td>
-                  <td className="px-3 py-3 text-right text-foreground" colSpan={4}>{fmtNum(fuelTotals.grand.actual)}</td>
-                  <td className={`px-3 py-3 text-right ${fuelTotals.grand.saved >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {fuelTotals.grand.saved > 0 ? '+' : ''}{fmtNum(fuelTotals.grand.saved)}
-                  </td>
-                  <td className={`px-3 py-3 text-right ${fuelTotals.grand.efficiency >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {fmtPct(fuelTotals.grand.efficiency)}
-                  </td>
-                  <td className="px-3 py-3" colSpan={2} />
-                </tr>
               </tfoot>
             )}
           </table>
