@@ -98,7 +98,7 @@ export function DashboardPage() {
   const month = useMemo(() => new Date(dateTo + 'T00:00:00').getMonth(), [dateTo]);
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [, setSections] = useState<Section[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [fuelTypes, setFuelTypes] = useState<FuelType[]>([]);
   const [limits, setLimits] = useState<MonthlyLimit[]>([]);
   const [entries, setEntries] = useState<DailyEntry[]>([]);
@@ -330,6 +330,11 @@ export function DashboardPage() {
   // Derived: departments (non-total) + sections grouped
   // --------------------------------------------------------
   const realDepartments = useMemo(() => departments.filter((d) => !d.is_total), [departments]);
+  const sectionsByDepartment = useMemo(() => {
+    const grouped: Record<string, Section[]> = {};
+    for (const section of sections) (grouped[section.department_id] ??= []).push(section);
+    return grouped;
+  }, [sections]);
 
   const isFuelEnabled = useCallback(
     (deptId: string, fuelTypeId: string): boolean => enabledFuels.has(`${deptId}|${fuelTypeId}`),
@@ -551,7 +556,7 @@ export function DashboardPage() {
     label: string;
     fuelCode: string;
     unit: string;
-    type: 'dept-header' | 'data' | 'total';
+    type: 'dept-header' | 'dept-data' | 'section-data' | 'total';
     block1Limit: number;
     block1Fact: number;
     block2Limit: number;
@@ -577,19 +582,43 @@ export function DashboardPage() {
 
       for (const ft of orderedFuels) {
         if (!isFuelEnabled(d.id, ft.id)) continue;
-        const b1L = block1Valid ? getBlock1Limit(d.id, null, ft.id) : 0;
-        const b1F = block1Valid ? getBlock1Fact(d.id, null, ft.id) : 0;
-        const b2L = block2Valid ? getBlock2Limit(d.id, null, ft.id) : 0;
-        const b2F = block2Valid ? getBlock2Fact(d.id, null, ft.id) : 0;
+        const deptSections = sectionsByDepartment[d.id] ?? [];
+        const valuesFor = (sectionId: string | null) => ({
+          b1Limit: block1Valid ? getBlock1Limit(d.id, sectionId, ft.id) : 0,
+          b1Fact: block1Valid ? getBlock1Fact(d.id, sectionId, ft.id) : 0,
+          b2Limit: block2Valid ? getBlock2Limit(d.id, sectionId, ft.id) : 0,
+          b2Fact: block2Valid ? getBlock2Fact(d.id, sectionId, ft.id) : 0,
+        });
+        const departmentValues = deptSections.length
+          ? deptSections.map((section) => valuesFor(section.id)).reduce(
+              (total, value) => ({
+                b1Limit: total.b1Limit + value.b1Limit,
+                b1Fact: total.b1Fact + value.b1Fact,
+                b2Limit: total.b2Limit + value.b2Limit,
+                b2Fact: total.b2Fact + value.b2Fact,
+              }),
+              { b1Limit: 0, b1Fact: 0, b2Limit: 0, b2Fact: 0 },
+            )
+          : valuesFor(null);
         rows.push({
           id: `dept-${d.id}-${ft.id}`, label: ln(ft), fuelCode: ft.code, unit: ft.unit,
-          type: 'data',
-          block1Limit: b1L, block1Fact: b1F, block2Limit: b2L, block2Fact: b2F,
+          type: 'dept-data',
+          block1Limit: departmentValues.b1Limit, block1Fact: departmentValues.b1Fact,
+          block2Limit: departmentValues.b2Limit, block2Fact: departmentValues.b2Fact,
         });
-        totalByFuel[ft.id].b1Limit += b1L;
-        totalByFuel[ft.id].b1Fact += b1F;
-        totalByFuel[ft.id].b2Limit += b2L;
-        totalByFuel[ft.id].b2Fact += b2F;
+        totalByFuel[ft.id].b1Limit += departmentValues.b1Limit;
+        totalByFuel[ft.id].b1Fact += departmentValues.b1Fact;
+        totalByFuel[ft.id].b2Limit += departmentValues.b2Limit;
+        totalByFuel[ft.id].b2Fact += departmentValues.b2Fact;
+        for (const section of deptSections) {
+          const values = valuesFor(section.id);
+          rows.push({
+            id: `section-${section.id}-${ft.id}`, label: `${ln(section)} — ${ln(ft)}`,
+            fuelCode: ft.code, unit: ft.unit, type: 'section-data',
+            block1Limit: values.b1Limit, block1Fact: values.b1Fact,
+            block2Limit: values.b2Limit, block2Fact: values.b2Fact,
+          });
+        }
       }
     }
 
@@ -604,7 +633,7 @@ export function DashboardPage() {
     }
 
     return rows;
-  }, [realDepartments, orderedFuels, getBlock1Limit, getBlock1Fact, getBlock2Limit, getBlock2Fact, block1Valid, block2Valid, ln, t, isFuelEnabled]);
+  }, [realDepartments, orderedFuels, sectionsByDepartment, getBlock1Limit, getBlock1Fact, getBlock2Limit, getBlock2Fact, block1Valid, block2Valid, ln, t, isFuelEnabled]);
 
   // --------------------------------------------------------
   // Derived: warnings — departments at >=80% of their MTD limit
@@ -1047,17 +1076,20 @@ export function DashboardPage() {
                     const b2Dev = row.block2Fact - row.block2Limit;
                     const b2Pct = ceilPct(row.block2Fact, row.block2Limit);
                     const isTotal = row.type === 'total';
+                    const isDepartment = row.type === 'dept-data';
+                    const isSection = row.type === 'section-data';
                     const style = FUEL_STYLES[row.fuelCode] ?? { limit: 'hsl(220 25% 70%)', fact: 'hsl(220 80% 55%)' };
 
                     return (
                       <tr
                         key={row.id}
                         className={`border-b border-border transition hover:bg-muted/30 ${
-                          isTotal ? 'bg-muted/60 font-bold' : ''
+                          isTotal ? 'bg-muted/60 font-bold' : isDepartment ? 'bg-primary/5 font-semibold' : isSection ? 'bg-muted/20 text-[13px]' : ''
                         }`}
                       >
                         <td className="border-r border-border px-3 py-2.5 text-foreground">
-                          <span className="flex items-center gap-2">
+                          <span className={`flex items-center gap-2 ${isSection ? 'pl-5' : ''}`}>
+                            {isSection && <span className="text-muted-foreground">└──</span>}
                             <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: style.fact }} />
                             <span>
                               {row.label}
