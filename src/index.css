@@ -1,282 +1,196 @@
-:root {
-  --primary: #0f5c47;
-  --primary-light: #167e63;
-  --accent: #f4a300;
-  --bg: #f4f6f8;
-  --surface: #ffffff;
-  --text: #1a2330;
-  --text-muted: #5b6b7e;
-  --border: #e2e8ee;
-  --border-strong: #cdd7e2;
-  --success: #1a8a5f;
-  --warning: #c97e1f;
-  --danger: #c0392b;
-  --header: #103a2e;
-  --row-alt: #f7f9fb;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-html, body { height: 100%; }
-
-body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.5;
-}
-
-.app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 28px 20px 60px;
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 22px;
-}
-
-.page-title h1 {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--header);
-  margin-bottom: 4px;
-}
-
-.page-title p {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.toolbar {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.search-box {
-  position: relative;
-  flex: 1;
-  min-width: 220px;
-}
-
-.search-box input {
-  width: 100%;
-  padding: 10px 14px 10px 38px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  font-size: 14px;
-  background: var(--surface);
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.search-box input:focus { border-color: var(--primary); }
-
-.search-box svg {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.05s;
-}
-
-.btn:active { transform: translateY(1px); }
-
-.btn-primary {
-  background: var(--primary);
-  color: #fff;
-}
-
-.btn-primary:hover { background: var(--primary-light); }
-
-.btn-print {
-  background: var(--header);
-  color: #fff;
-}
-
-.btn-print:hover { background: #155a48; }
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(16, 58, 46, 0.06);
-}
-
-.summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, #f0f7f4, var(--surface));
-}
-
-.summary-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.summary-item .label {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.summary-item .value {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--header);
-}
-
-.summary-item .value span {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
-table.data {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-table.data thead th {
-  background: var(--header);
-  color: #fff;
-  text-align: left;
-  padding: 12px 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  font-size: 13px;
-}
-
-table.data thead th:first-child { padding-left: 18px; }
-table.data thead th:last-child { padding-right: 18px; }
-
-table.data tbody td {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-table.data tbody td:first-child { padding-left: 18px; }
-table.data tbody td:last-child { padding-right: 18px; }
-
-table.data tbody tr:nth-child(even) td { background: var(--row-alt); }
-
-table.data tbody tr:hover td { background: #eef6f2; }
-
-.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-.badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.badge-success { background: #e3f4ec; color: var(--success); }
-.badge-warning { background: #fdf0dd; color: var(--warning); }
-.badge-danger { background: #fbe4e1; color: var(--danger); }
-
-@media print {
-  .no-print { display: none !important; }
-  .app { max-width: none; padding: 0; }
-  body { background: #fff; }
-
-  .card {
-    border: none;
-    box-shadow: none;
-    border-radius: 0;
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 222 89% 55%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 222 89% 55%;
+    --sidebar: 210 40% 98%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-accent: 210 40% 94%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 32% 88%;
   }
 
-  .summary {
-    border: 1px solid #333;
-    border-radius: 0;
-    page-break-inside: avoid;
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 210 20% 98%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 20% 98%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 8%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 217 91% 60%;
+    --sidebar: 222 47% 10%;
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 20% 98%;
+    --sidebar-border: 217 33% 20%;
   }
-
-  table.data thead th { background: var(--header) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  table.data tbody tr:nth-child(even) td { background: var(--row-alt) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-
-  .print-only { display: block !important; }
 }
 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .text-primary { color: hsl(var(--primary)); }
+  .text-primary-foreground { color: hsl(var(--primary-foreground)); }
+  .text-muted-foreground { color: hsl(var(--muted-foreground)); }
+  .text-destructive { color: hsl(var(--destructive)); }
+  .text-emerald-600 { color: rgb(5 150 105); }
+  .text-orange-600 { color: rgb(234 88 12); }
+  .text-foreground { color: hsl(var(--foreground)); }
+  .text-card-foreground { color: hsl(var(--card-foreground)); }
+  .text-sidebar-foreground { color: hsl(var(--sidebar-foreground)); }
+  .text-sidebar-accent-foreground { color: hsl(var(--sidebar-accent-foreground)); }
+
+  .bg-background { background-color: hsl(var(--background)); }
+  .bg-card { background-color: hsl(var(--card)); }
+  .bg-primary { background-color: hsl(var(--primary)); }
+  .bg-primary-foreground { background-color: hsl(var(--primary-foreground)); }
+  .bg-secondary { background-color: hsl(var(--secondary)); }
+  .bg-muted { background-color: hsl(var(--muted)); }
+  .bg-accent { background-color: hsl(var(--accent)); }
+  .bg-destructive { background-color: hsl(var(--destructive)); }
+  .bg-sidebar { background-color: hsl(var(--sidebar)); }
+  .bg-sidebar-accent { background-color: hsl(var(--sidebar-accent)); }
+  .bg-muted\/30 { background-color: hsl(var(--muted) / 0.3); }
+  .bg-muted\/60 { background-color: hsl(var(--muted) / 0.6); }
+  .bg-primary\/10 { background-color: hsl(var(--primary) / 0.1); }
+  .bg-sidebar-accent\/30 { background-color: hsl(var(--sidebar-accent) / 0.3); }
+  .bg-sidebar-accent\/50 { background-color: hsl(var(--sidebar-accent) / 0.5); }
+  .bg-background\/70 { background-color: hsl(var(--background) / 0.7); }
+
+  .border-border { border-color: hsl(var(--border)); }
+  .border-sidebar-border { border-color: hsl(var(--sidebar-border)); }
+  .border-l { border-left-width: 1px; }
+
+  .stroke-muted { stroke: hsl(var(--muted)); }
+
+  .ring-ring { --tw-ring-color: hsl(var(--ring)); }
+
+  .hover\:bg-primary\/90:hover { background-color: hsl(var(--primary) / 0.9); }
+  .hover\:bg-sidebar-accent\/50:hover { background-color: hsl(var(--sidebar-accent) / 0.5); }
+  .hover\:bg-sidebar-accent\/30:hover { background-color: hsl(var(--sidebar-accent) / 0.3); }
+}
+
+/* ============================================================
+   Print styles — Daily Entries report
+   ============================================================ */
+
+/* Show elements that are only for print */
 .print-only { display: none; }
 
-.print-header {
-  text-align: center;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid var(--header);
-}
+@media print {
+  @page {
+    margin: 10mm;
+    size: A4 landscape;
+  }
 
-.print-header h2 {
-  font-size: 18px;
-  color: var(--header);
-  margin-bottom: 4px;
-}
+  /* Reset page background for paper */
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 
-.print-header p {
-  font-size: 13px;
-  color: var(--text-muted);
-}
+  /* Hide everything marked no-print */
+  .no-print { display: none !important; }
 
-.print-footer {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 24px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-muted);
-}
+  /* Show print-only elements */
+  .print-only { display: block !important; }
 
-.sign-row {
-  display: flex;
-  justify-content: space-around;
-  margin-top: 40px;
-  font-size: 13px;
-}
+  /* Remove layout padding that creates whitespace */
+  .lg\:pl-64 { padding-left: 0 !important; }
 
-.sign-row .sign {
-  text-align: center;
-  min-width: 180px;
-}
+  /* Report header */
+  .print-only h1 { font-size: 18px; margin: 0; }
+  .print-only p  { font-size: 11px; margin: 2px 0; }
+  .print-only hr { border: none; border-top: 1px solid #999; margin: 8px 0 12px; }
 
-.sign-row .sign .line {
-  border-top: 1px solid #333;
-  margin-bottom: 4px;
-  padding-top: 4px;
-}
+  /* Table wrapper — remove card styling, let table fill the page */
+  .print-table-wrapper {
+    overflow: visible !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+  .print-table-wrapper > .overflow-x-auto { overflow: visible !important; }
 
-.status-berilgan { color: var(--success); font-weight: 600; }
-.status-kutilmoqda { color: var(--warning); font-weight: 600; }
-.status-bekor { color: var(--danger); font-weight: 600; }
+  /* Table — paper-optimised */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: auto;
+  }
+
+  thead { display: table-header-group; }
+
+  tr { page-break-inside: avoid; }
+
+  th, td {
+    border: 1px solid #999 !important;
+    padding: 4px 6px !important;
+    font-size: 10px !important;
+    color: #000 !important;
+    white-space: normal !important;
+    word-break: break-word;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  th {
+    background-color: #eee !important;
+    font-weight: 700 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Remove alternating row backgrounds for cleaner print */
+  tbody tr:nth-child(even) { background: #fff !important; }
+  tbody tr:nth-child(odd)  { background: #fff !important; }
+
+  /* Dashboard — hide everything except the breakdown table print area */
+  .dash-print-root > * { display: none !important; }
+  .dash-print-root > .dash-print-area { display: block !important; }
+  .dash-print-root > .print-only { display: block !important; }
+}
