@@ -693,7 +693,7 @@ export function DashboardPage() {
     <div className="space-y-6 dash-print-root">
       {/* Print-only report header */}
       <div className="print-only hidden">
-        <h1 className="text-xl font-bold text-black">AGMK UPJT</h1>
+        <h1 className="text-xl font-bold text-black">OKMK STTB</h1>
         <p className="mt-1 text-sm text-black">{t('printDashSubtitle')}</p>
         <p className="mt-0.5 text-sm font-semibold text-black">{t('printDashTitle')}</p>
         <p className="mt-0.5 text-sm text-black">

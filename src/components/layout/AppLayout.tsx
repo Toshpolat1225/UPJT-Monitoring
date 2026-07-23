@@ -82,7 +82,7 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
           </div>
           <div className="leading-tight">
             <div className="text-sm font-semibold text-sidebar-foreground">{t('appName')}</div>
-            <div className="text-[11px] text-muted-foreground">UPJT</div>
+            <div className="text-[11px] text-muted-foreground">OKMK STTB</div>
           </div>
         </div>
 
@@ -132,7 +132,8 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
+            </button>
+
           </div>
         </header>
         <main className="p-6">{children}</main>
