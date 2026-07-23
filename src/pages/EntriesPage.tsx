@@ -454,6 +454,7 @@ export function EntriesPage() {
       : '—',
     Number(e.opening_balance) || 0,
     Number(e.received_azs) || 0,
+    Number(e.transfer_in) || 0,
     Number(e.transfer_out) || 0,
     Number(e.consumption) || 0,
     Number(e.closing_balance) || 0,
