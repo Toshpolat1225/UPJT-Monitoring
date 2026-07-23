@@ -70,7 +70,7 @@ export function AuthPage() {
             </button>
           </form>
 
-          <div className="mt-4 flex justify-center gap-2">
+          <div className="mt-4 hidden flex justify-center gap-2">
             <button
               onClick={() => setLang('uz')}
               className={`rounded border border-border px-3 py-1 text-xs transition-colors ${

@@ -133,7 +133,7 @@ export function AppLayout({ currentView, onNavigate, children }: AppLayoutProps)
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
-            <div className="inline-flex rounded-md border border-border p-0.5">
+            <div className="hidden inline-flex rounded-md border border-border p-0.5">
               <button
                 onClick={() => setLang('uz')}
                 className={`rounded px-2.5 py-1 text-xs transition-colors ${
