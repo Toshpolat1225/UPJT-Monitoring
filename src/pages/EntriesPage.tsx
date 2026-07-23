@@ -437,41 +437,53 @@ export function EntriesPage() {
   // --------------------------------------------------------
   // Totals (computed from filtered entries only)
   // --------------------------------------------------------
+  const displayedEntries = useMemo(() => entries, [entries]);
+
   const fuelTotals = useMemo(
-    () => computeFuelTotals(entries, fuelTypes, limits),
-    [entries, fuelTypes, limits],
+    () => computeFuelTotals(displayedEntries, fuelTypes, limits),
+    [displayedEntries, fuelTypes, limits],
   );
+
+  const entryToExportRow = (e: EntryRow): (string | number)[] => [
+    e.entry_date,
+    e.vehicle ? ln(e.vehicle) : '—',
+    e.vehicle?.code ?? '—',
+    e.section ? ln(e.section) : '—',
+    e.fuel_type
+      ? `${ln(e.fuel_type)}${e.fuel_type.unit ? ` ${formatUnit(e.fuel_type.unit, lang)}` : ''}`
+      : '—',
+    Number(e.opening_balance) || 0,
+    Number(e.received_azs) || 0,
+    Number(e.transfer_out) || 0,
+    Number(e.consumption) || 0,
+    Number(e.closing_balance) || 0,
+  ];
 
   // --------------------------------------------------------
   // Excel export (filtered data + Jami block with SUMIF formulas)
   // --------------------------------------------------------
   const handleExport = () => {
-    if (entries.length === 0) {
+    if (loading || displayedEntries.length === 0) {
       toast.error(t('noData'));
       return;
     }
 
-    // Header row
+    // Header row — matches visible table columns (excluding actions)
     const headers = [
       t('date'),
+      t('vehicle'),
+      t('code'),
       t('section'),
       t('fuelType'),
-      t('limit'),
+      t('opening'),
+      t('receivedAzs'),
+      t('transferIn'),
+      t('transferOut'),
       t('consumption'),
-      t('tejalgan'),
-      t('tejamkorlik'),
+      t('closing'),
     ];
 
-    // Data rows: Sana | Sex | Yoqilg'i turi | Limit | Amalda | Tejalgan | Tejamkorlik %
-    const dataRows = entries.map((e) => [
-      e.entry_date,
-      e.section ? ln(e.section) : '',
-      e.fuel_type ? ln(e.fuel_type) : '',
-      0, // Limit — filled via SUMIF formula below
-      Number(e.consumption) || 0,
-      0, // Tejalgan — formula
-      0, // Tejamkorlik % — formula
-    ]);
+    const dataRows = displayedEntries.map(entryToExportRow);
 
     // Build sheet manually with formulas
     const aoa: (string | number)[][] = [headers, ...dataRows];
@@ -482,11 +494,8 @@ export function EntriesPage() {
 
     const dataStart = 2; // first data row in Excel (1-based)
     const dataEnd = dataStart + dataRows.length - 1;
-    const colFuel = 'C'; // Yoqilg'i turi column
-    const colLimit = 'D';
-    const colActual = 'E';
-    const colSaved = 'F';
-    const colPct = 'G';
+    const colFuel = 'E'; // Yoqilg'i turi column in table layout
+    const colActual = 'J'; // consumption column in table layout
 
     // Jami block header
     aoa.push([t('total')]);
@@ -494,7 +503,7 @@ export function EntriesPage() {
     // Per-fuel totals with SUMIF formulas
     const fuelRowsStart = aoa.length + 1; // 1-based Excel row
     for (const ft of fuelTypes) {
-      const fuelName = ft.name_uz;
+      const fuelName = `${ln(ft)}${ft.unit ? ` ${formatUnit(ft.unit, lang)}` : ''}`;
       const rowIdx = aoa.length + 1; // 1-based
       aoa.push([
         `${t('total')} ${fuelName}`,
@@ -708,7 +717,7 @@ export function EntriesPage() {
                   </td>
                 </tr>
               )}
-              {!loading && entries.length === 0 && (
+              {!loading && displayedEntries.length === 0 && (
                 <tr>
                   <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
                     {t('noData')}
@@ -716,7 +725,7 @@ export function EntriesPage() {
                 </tr>
               )}
               {!loading &&
-                entries.map((e) => (
+                displayedEntries.map((e) => (
                   <tr key={e.id} className="border-b border-border transition hover:bg-muted/30">
                     <td className="px-3 py-2 text-foreground whitespace-nowrap">{e.entry_date}</td>
                     <td className="px-3 py-2 text-foreground">{e.vehicle ? ln(e.vehicle) : '—'}</td>
@@ -755,7 +764,7 @@ export function EntriesPage() {
                   </tr>
                 ))}
             </tbody>
-            {entries.length > 0 && (
+            {displayedEntries.length > 0 && (
               <tfoot className="border-t-2 border-border bg-muted/40">
                 {/* Per-fuel total rows */}
                 {fuelTotals.perFuel.map((ft) => (
