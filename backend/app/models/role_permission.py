@@ -1,14 +1,47 @@
-from sqlalchemy import Column, Text, Boolean, func
-from sqlalchemy.dialects.postgresql import UUID, ENUM
-from app.core.database import Base
-from app.models.enums import AppRole
+import uuid
+from datetime import datetime
+from sqlalchemy import Column, Text, Boolean, func, ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from app.database.base import Base
 
 
-class RolePermission(Base):
+class Role(Base):
+    __tablename__ = "roles"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+
+    permissions: Mapped[list["RolePermission"]] = relationship(back_populates="role", cascade="all, delete-orphan")
+    user_roles: Mapped[list["UserRole"]] = relationship(back_populates="role", cascade="all, delete-orphan")
+
+
+class Permission(Base):
+    __tablename__ = "permissions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)  # e.g., "entries.create"
+    description: Mapped[str | None] = mapped_column(Text)
+
+    roles: Mapped[list["RolePermission"]] = relationship(back_populates="permission", cascade="all, delete-orphan")
+
+
+class RolePermission(Base): # This is a join table
     __tablename__ = "role_permissions"
+    __table_args__ = (UniqueConstraint('role_id', 'permission_id', name='uq_role_permission'),)
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    role = Column(ENUM(AppRole, name="app_role", create_type=False), nullable=False)
-    module = Column(Text, nullable=False)
-    permission = Column(Text, nullable=False)
-    allowed = Column(Boolean, nullable=False, default=False)
+    role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
+    permission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True)
+
+    role: Mapped["Role"] = relationship(back_populates="permissions")
+    permission: Mapped["Permission"] = relationship(back_populates="roles")
+
+
+class UserRole(Base): # This is a join table
+    __tablename__ = "user_roles"
+    __table_args__ = (UniqueConstraint('user_id', 'role_id', name='uq_user_role'),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
+
+    user: Mapped["User"] = relationship(back_populates="user_roles")
+    role: Mapped["Role"] = relationship(back_populates="user_roles")

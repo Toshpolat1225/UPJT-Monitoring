@@ -1,15 +1,18 @@
-from sqlalchemy import Column, Text, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID, ENUM
-from app.core.database import Base
-from app.models.enums import FuelUnit
+import uuid
+from sqlalchemy import String
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from app.database.base import Base, AuditMixin
 
 
-class FuelType(Base):
+class FuelType(Base, AuditMixin):
     __tablename__ = "fuel_types"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    code = Column(Text, nullable=False, unique=True)
-    name = Column(Text, nullable=False)
-    name_uz = Column(Text, nullable=False, default="")
-    unit = Column(ENUM(FuelUnit, name="fuel_unit", create_type=False), nullable=False, default=FuelUnit.litr)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    name_uz: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), nullable=False, default="litr")
+
+    # Relationships
+    vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="fuel_type")
+    fuel_matrix: Mapped[list["DepartmentFuelMatrix"]] = relationship(back_populates="fuel_type", cascade="all, delete-orphan")

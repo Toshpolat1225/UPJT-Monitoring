@@ -1,59 +1,46 @@
-from datetime import datetime, timedelta
-from typing import Optional, List
-from jose import jwt, JWTError
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
-from app.core.config import settings
-from app.core.database import get_db
-from app.models.user import Profile, UserRole
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from jose import jwt
+from passlib.context import CryptContext
+from app.core.config.settings import get_settings
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+settings = get_settings()
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> Profile:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifies a plain password against a hashed password."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hashes a plain password."""
+    return pwd_context.hash(password)
+
+
+def create_jwt_token(
+    subject: Any, expires_delta: timedelta, token_type: str
+) -> str:
+    """
+    Creates a JWT token (Access or Refresh).
+    """
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "type": token_type,
+    }
+    encoded_jwt = jwt.encode(
+        to_encode, settings.jwt.SECRET_KEY, algorithm=settings.jwt.ALGORITHM
     )
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        user_id: Optional[str] = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = db.query(Profile).filter(Profile.id == user_id).first()
-    if user is None:
-        raise credentials_exception
-    return user
+    return encoded_jwt
 
 
-def get_user_roles(db: Session, user_id: str) -> List[str]:
-    return [r.role for r in db.query(UserRole).filter(UserRole.user_id == user_id).all()]
+def create_access_token(subject: Any) -> str:
+    return create_jwt_token(subject, timedelta(minutes=settings.jwt.ACCESS_TOKEN_EXPIRE_MINUTES), "access")
 
 
-def require_role(*roles: str):
-    def role_checker(
-        current_user: Profile = Depends(get_current_user),
-        db: Session = Depends(get_db),
-    ) -> Profile:
-        user_roles = get_user_roles(db, str(current_user.id))
-        if not any(r in roles for r in user_roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
-        return current_user
-    return role_checker
+def create_refresh_token(subject: Any) -> str:
+    # Refresh token expiry can be configured separately
+    return create_jwt_token(subject, timedelta(days=7), "refresh")

@@ -1,14 +1,21 @@
-from sqlalchemy import Column, Text, Boolean, DateTime, func
+import uuid
+from sqlalchemy import String, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from app.database.base import Base, AuditMixin
 
 
-class Department(Base):
+class Department(Base, AuditMixin):
     __tablename__ = "departments"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    code = Column(Text, nullable=False, unique=True)
-    name = Column(Text, nullable=False)
-    name_uz = Column(Text, nullable=False, default="")
-    is_total = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    name_uz: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_total: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("companies.id", ondelete="SET NULL"))
+
+    # Relationships
+    company: Mapped["Company"] = relationship(back_populates="departments")
+    sections: Mapped[list["Section"]] = relationship(back_populates="department", cascade="all, delete-orphan")
+    vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="department", cascade="all, delete-orphan")
+    fuel_matrix: Mapped[list["DepartmentFuelMatrix"]] = relationship(back_populates="department", cascade="all, delete-orphan")
