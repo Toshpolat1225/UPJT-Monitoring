@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Numeric, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.database.base import Base
 
 
 class MonthlyLimit(Base):

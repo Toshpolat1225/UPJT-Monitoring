@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Date, Numeric, DateTime, ForeignKey, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.database.base import Base
 
 
 class DailyEntry(Base):
