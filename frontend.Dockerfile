@@ -1,20 +1,22 @@
-# Stage 1: Build
+# --- Build Stage ---
 FROM node:20-alpine as builder
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 COPY . .
+
+# Set the API URL for production build
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=${VITE_API_URL}
+
 RUN npm run build
 
-# Stage 2: Runtime
-FROM nginx:alpine
+# --- Production Stage ---
+FROM nginx:1.25-alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]

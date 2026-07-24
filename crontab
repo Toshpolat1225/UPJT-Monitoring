@@ -1,0 +1,2 @@
+# Run the backup script every day at 2:30 AM
+30 2 * * * /usr/local/bin/backup.sh >> /var/log/cron.log 2>&1

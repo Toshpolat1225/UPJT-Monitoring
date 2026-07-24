@@ -1,47 +1,54 @@
-version: "3.8"
+version: "3.9"
 
 services:
   db:
     image: postgres:15-alpine
-    container_name: sttb_db
+    container_name: upjt_db_dev
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: sttb_monitoring
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: sttb_backend
+      context: .
+      dockerfile: backend/Dockerfile.dev # Use a dev-specific Dockerfile
+    container_name: upjt_backend_dev
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/sttb_monitoring
-      SECRET_KEY: your-secret-key-change-in-production
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - CORS_ORIGINS=http://localhost:5173
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app # Mount code for hot-reloading
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
   frontend:
-    build:
-      context: .
-      dockerfile: frontend.Dockerfile
-    container_name: sttb_frontend
+    build: . # Vite dev server is run from the root context
+    container_name: upjt_frontend_dev
+    command: npm run dev -- --host # Run Vite dev server
     ports:
-      - "3000:80"
-    depends_on:
-      - backend
+      - "5173:5173"
+    volumes:
+      - .:/app # Mount the entire project
+      - /app/node_modules # Don't mount node_modules from host
     restart: unless-stopped
 
 volumes:

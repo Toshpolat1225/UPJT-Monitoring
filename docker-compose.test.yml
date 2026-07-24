@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  test_db:
+    image: postgres:15-alpine
+    container_name: upjt_db_test
+    environment:
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpassword
+      - POSTGRES_DB=testdb
+    ports:
+      - "5433:5432" # Use a different port to avoid conflicts with dev db
+
+  test_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: upjt_backend_test
+    environment:
+      - DATABASE_URL=postgresql://testuser:testpassword@test_db:5432/testdb
+      - SECRET_KEY=test-secret-key
+      - CORS_ORIGINS=http://localhost:3000
+      - ENVIRONMENT=testing
+    depends_on:
+      - test_db
+    command: ["/bin/sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
+  # This service will run the pytest suite
+  api_tests:
+    build:
+      context: .
+      dockerfile: -
+      args:
+        BASE_IMAGE: python:3.11-slim
+    command: ["pytest", "tests/backend"]
+    volumes:
+      - ./backend:/app/backend
+      - ./tests/backend:/app/tests
+    depends_on:
+      - test_backend

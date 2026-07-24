@@ -1,0 +1,308 @@
+version: "3.9"
+
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: upjt_db_prod
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PGDATA=/var/lib/postgresql/data/pgdata # Custom PGDATA for easier recovery
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - wal_archive:/var/lib/postgresql/wal-archive
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -D /var/lib/postgresql/data/pgdata
+    restart: unless-stopped
+    user: "postgres" # Run as postgres user
+    read_only: true # Root filesystem is read-only
+    tmpfs: /tmp # /tmp is a tmpfs
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+      reservations: # Ensure minimum resources are always available
+        memory: 512M
+    logging: *logging
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: upjt_redis_prod
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    env_file:
+      - .env
+    volumes:
+      - redis_data:/data
+    user: "redis" # Run as redis user
+    read_only: true # Root filesystem is read-only
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging: *logging
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: upjt_backend_prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "-c", "/app/entrypoint.sh"] # Custom entrypoint for migrations
+    user: "appuser" # Run as non-root user
+    read_only: true # Root filesystem is read-only
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging: *logging
+    networks:
+      - internal
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: upjt_nginx_prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - backend
+    user: "nginx" # Run as non-root user
+    read_only: true # Root filesystem is read-only
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 64M
+    logging: *logging
+    networks:
+      - internal
+      - default
+
+  certbot:
+    image: certbot/certbot
+    container_name: upjt_certbot_prod
+    restart: unless-stopped
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    user: "root" # Certbot needs root to manage certificates
+    read_only: true # Root filesystem is read-only
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    logging: *logging
+    networks:
+      - default
+
+  backup-service:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.backup
+    container_name: upjt_backup_prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - wal_archive:/var/lib/postgresql/wal-archive # Share WAL archive for potential PITR
+      - ./backups:/backups
+    depends_on:
+      - db
+    user: "appuser" # Run as non-root user
+    read_only: true # Root filesystem is read-only, except for /backups and /tmp
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    networks:
+      - internal
+
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: upjt_prometheus_prod
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus # Persistent storage for metrics
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+    user: "65534" # Run as nobody user
+    read_only: true # Root filesystem is read-only, except for /prometheus and /tmp
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    networks:
+      - internal
+      - default
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: upjt_grafana_prod
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/grafana-provisioning/:/etc/grafana/provisioning/
+      - grafana_data:/var/lib/grafana # Persistent storage for Grafana data
+    ports:
+      - "3000:3000"
+    user: "472" # Run as grafana user
+    read_only: true # Root filesystem is read-only, except for /var/lib/grafana and /tmp
+    tmpfs: /tmp # /tmp is a tmpfs
+    cap_drop: ["ALL"] # Drop all capabilities
+    security_opt: ["no-new-privileges"] # Prevent privilege escalation
+    networks:
+      - internal
+      - default
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.12.0
+    container_name: upjt_postgres_exporter_prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+    user: "65534" # Run as nobody user
+    read_only: true
+    tmpfs: /tmp
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges"]
+    networks:
+      - internal
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.54.0-alpine
+    container_name: upjt_redis_exporter_prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    user: "65534" # Run as nobody user
+    read_only: true
+    tmpfs: /tmp
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges"]
+    networks:
+      - internal
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.7.0-alpine
+    container_name: upjt_node_exporter_prod
+    restart: unless-stopped
+    pid: "host" # Required to collect host metrics
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+)($|/)'
+    user: "65534" # Run as nobody user
+    read_only: true
+    tmpfs: /tmp
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges"]
+    networks:
+      - internal
+  
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: upjt_loki_prod
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - internal
+      - default
+
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: upjt_promtail_prod
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  certbot_conf:
+  certbot_www:
+  redis_data:
+  prometheus_data: # Persistent storage for Prometheus
+  grafana_data: # Persistent storage for Grafana
+  wal_archive:
+  loki_data:
+
+networks:
+  internal:
+    internal: true
+  default:

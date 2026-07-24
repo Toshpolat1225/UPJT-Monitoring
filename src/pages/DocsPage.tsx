@@ -56,22 +56,22 @@ const devArticles: Article[] = [
   {
     id: 'arch',
     title: 'Arxitektura',
-    body: "Frontend: React + Vite + Tailwind CSS. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: Supabase (PostgreSQL) + RLS. Auth: Supabase Auth.",
+    body: "Frontend: React + Vite + TypeScript + Tailwind CSS + TanStack Query. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: PostgreSQL. Auth: JWT (Access + Refresh Tokens).",
   },
   {
     id: 'schema',
     title: "Ma'lumotlar bazasi sxemasi",
-    body: "Jadvallar: departments, sections, fuel_types, vehicles, profiles, user_roles, monthly_limits, daily_entries, audit_log, role_permissions. Enumlar: app_role, fuel_unit.",
+    body: "Asosiy jadvallar: users, roles, permissions, companies, departments, sections, vehicles, fuel_types, monthly_limits, daily_entries, audit_log. Barcha munosabatlar SQLAlchemy modellari orqali boshqariladi.",
   },
   {
-    id: 'rls',
-    title: 'RLS siyosati',
-    body: "Barcha jadvallarda RLS yoqilgan. has_role() funksiyasi orqali rol tekshiruvi. Master roli faqat o'z sexining ma'lumotlarini ko'radi.",
+    id: 'authz',
+    title: 'Avtorizatsiya (RBAC)',
+    body: "Tizim dinamik Rolga Asoslangan Kirish Nazoratidan (RBAC) foydalanadi. Har bir endpoint JWT tokendagi ruxsatlar (permissions) ro'yxati asosida himoyalangan. Foydalanuvchining roli unga biriktirilgan ruxsatlarni belgilaydi.",
   },
   {
     id: 'triggers',
-    title: 'Triggerlar',
-    body: "handle_new_user — yangi foydalanuvchi uchun profil yaratish. log_daily_entry_changes — daily_entries o'zgarishlarini audit_log'ga yozish. set_updated_at — updated_at maydonini avtomatik yangilash.",
+    title: 'Audit va Tranzaksiyalar',
+    body: "Barcha CREATE, UPDATE, DELETE amallari PostgreSQL triggerlari orqali `audit_log` jadvaliga avtomatik yoziladi. Muhim biznes operatsiyalari (masalan, kunlik yozuvni saqlash) ma'lumotlar butunligini ta'minlash uchun atomik tranzaksiyalarga o'ralgan.",
   },
 ];
 

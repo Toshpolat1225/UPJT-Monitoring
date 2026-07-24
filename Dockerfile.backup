@@ -1,0 +1,15 @@
+FROM alpine:3.18
+
+# Install necessary packages: postgresql-client for pg_dump, and cron
+RUN apk add --no-cache postgresql-client openssl busybox-suid
+
+# Copy the backup script and make it executable
+COPY backup.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/backup.sh
+
+# Copy the crontab file
+COPY crontab /etc/crontabs/root
+
+# The CMD will run crond in the foreground, which will in turn execute the backup script
+# based on the schedule in the crontab file.
+CMD ["crond", "-f", "-l", "8"]
