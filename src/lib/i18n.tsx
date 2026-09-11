@@ -157,6 +157,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 export const useI18n = () => useContext(Ctx);
 
 export function formatUnit(unit: string | null | undefined, _lang: Lang): string {
+  void _lang;
   if (!unit) return '';
   if (unit === 'm3') return 'm\u00b3';
   if (unit === 'litr') return 'l';

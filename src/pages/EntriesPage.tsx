@@ -2,26 +2,26 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, FileDown, Printer, X } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import apiClient from '../lib/client';
 import {
-  supabase,
   type Department,
   type Section,
   type Vehicle,
   type FuelType,
   type DailyEntry,
   type MonthlyLimit,
-  fetchEnabledFuelKeys,
-} from '../lib/supabase';
+} from '../types';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
 import { computeFuelTotals } from '../lib/fuelTotals';
+import { getErrorMessage } from '../lib/errorMessage';
 
 // ============================================================
 // Types
 // ============================================================
 
 interface EntryRow extends DailyEntry {
-  department?: Pick<Department, 'name_uz' | 'name_uz'> | null;
+  department?: (Pick<Department, 'name_uz' | 'code'> & { company?: { short_name: string } | null }) | null;
   section?: Pick<Section, 'name_uz' | 'name_uz'> | null;
   vehicle?: Pick<Vehicle, 'code' | 'name_uz' | 'name_uz'> | null;
   fuel_type?: Pick<FuelType, 'name_uz' | 'name_uz' | 'unit'> | null;
@@ -52,8 +52,11 @@ const num = (v: string): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const fmtNum = (n: number): string =>
-  Number.isFinite(n) ? n.toLocaleString('uz-UZ', { maximumFractionDigits: 2 }) : '0';
+const fmtNum = (n: number | null | undefined): string =>
+  n == null || !Number.isFinite(n) ? '—' : n.toLocaleString('uz-UZ', { maximumFractionDigits: 2 });
+
+const exportNumber = (n: number | null | undefined): number | string =>
+  n == null || !Number.isFinite(n) ? '—' : n;
 
 const fmtPct = (n: number): string =>
   Number.isFinite(n) ? `${Math.ceil(n)}%` : '0%';
@@ -96,6 +99,11 @@ export function EntriesPage() {
   const [filterDateTo, setFilterDateTo] = useState<string>(todayStr());
   const [filterDept, setFilterDept] = useState<string>('');
   const [filterVehicle, setFilterVehicle] = useState<string>('');
+  const [filterSection, setFilterSection] = useState<string>('');
+  const [filterFuel, setFilterFuel] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
+  const [sortKey, setSortKey] = useState<keyof DailyEntry | 'company' | 'vehicle_name' | 'section_name' | 'fuel_name'>('entry_date');
+  const [sortAsc, setSortAsc] = useState(false);
 
   // Reference data
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -121,24 +129,23 @@ export function EntriesPage() {
   // --------------------------------------------------------
   useEffect(() => {
     (async () => {
-      const [
-        { data: depts },
-        { data: secs },
-        { data: vehs },
-        { data: fuels },
-        fuelKeys,
-      ] = await Promise.all([
-        supabase.from('departments').select('*').order('code'),
-        supabase.from('sections').select('*').order('name_uz'),
-        supabase.from('vehicles').select('*').order('code'),
-        supabase.from('fuel_types').select('*').order('code'),
-        fetchEnabledFuelKeys(),
+      const [deptsRes, secsRes, vehsRes, fuelsRes, matrixRes] = await Promise.all([
+        apiClient.get('/master-data/departments'),
+        apiClient.get('/master-data/sections'),
+        apiClient.get('/master-data/vehicles'),
+        apiClient.get('/master-data/fuel-types'),
+        apiClient.get('/fuel-matrix'),
       ]);
-      setDepartments((depts as Department[]) ?? []);
-      setSections((secs as Section[]) ?? []);
-      setVehicles((vehs as Vehicle[]) ?? []);
-      setFuelTypes((fuels as FuelType[]) ?? []);
-      setEnabledFuels(fuelKeys);
+
+      setDepartments((deptsRes.data as Department[]) ?? []);
+      setSections((secsRes.data as Section[]) ?? []);
+      setVehicles((vehsRes.data as Vehicle[]) ?? []);
+      setFuelTypes((fuelsRes.data as FuelType[]) ?? []);
+
+      const matrix = (matrixRes.data as Array<{ department_id: string; fuel_type_id: string; is_active: boolean }>) ?? [];
+      setEnabledFuels(
+        new Set(matrix.filter((row) => row.is_active).map((row) => `${row.department_id}|${row.fuel_type_id}`)),
+      );
     })();
   }, []);
 
@@ -148,36 +155,28 @@ export function EntriesPage() {
   const loadEntries = useCallback(async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('daily_entries')
-        .select(
-          '*, department:departments(name_uz,name_uz), section:sections(name_uz,name_uz), vehicle:vehicles(code,name_uz,name_uz), fuel_type:fuel_types(name_uz,name_uz,unit)',
-        )
-        .gte('entry_date', filterDateFrom)
-        .lte('entry_date', filterDateTo)
-        .order('entry_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      const [entriesRes, limitsRes] = await Promise.all([
+        apiClient.get('/entries', {
+          params: {
+            date_from: filterDateFrom,
+            date_to: filterDateTo,
+            department_id: filterDept || undefined,
+            vehicle_id: filterVehicle || undefined,
+          },
+        }),
+        apiClient.get('/limits', {
+          params: {
+            year: parseInt(filterDateFrom.slice(0, 4)),
+            month: parseInt(filterDateFrom.slice(5, 7)),
+          },
+        }),
+      ]);
 
-      if (filterDept) query = query.eq('department_id', filterDept);
-      if (filterVehicle) query = query.eq('vehicle_id', filterVehicle);
-
-      const { data, error } = await query;
-      if (error) {
-        toast.error(`${t('error')}: ${error.message}`);
-        setEntries([]);
-        return;
-      }
-      setEntries((data as EntryRow[]) ?? []);
-
-      // Load monthly limits for the filter period
-      const fromY = parseInt(filterDateFrom.slice(0, 4));
-      const fromM = parseInt(filterDateFrom.slice(5, 7));
-      const { data: limData } = await supabase
-        .from('monthly_limits')
-        .select('*')
-        .eq('year', fromY)
-        .eq('month', fromM);
-      setLimits((limData as MonthlyLimit[]) ?? []);
+      setEntries((entriesRes.data as EntryRow[]) ?? []);
+      setLimits((limitsRes.data as MonthlyLimit[]) ?? []);
+    } catch (error: unknown) {
+      toast.error(`${t('error')}: ${getErrorMessage(error, 'Failed to load entries')}`);
+      setEntries([]);
     } finally {
       setLoading(false);
     }
@@ -210,72 +209,21 @@ export function EntriesPage() {
 
   const closingBalance = useMemo(() => calcClosing(form), [form]);
 
-  // --------------------------------------------------------
-  // Chain recalculation
-  // --------------------------------------------------------
-
-  /** Find the closing_balance of the most recent entry strictly before the
-   *  given date for the same vehicle + fuel type. Returns null if none. */
-  const getPreviousClosing = useCallback(
-    async (vehicleId: string, fuelTypeId: string, beforeDate: string): Promise<number | null> => {
-      const { data } = await supabase
-        .from('daily_entries')
-        .select('id, closing_balance')
-        .eq('vehicle_id', vehicleId)
-        .eq('fuel_type_id', fuelTypeId)
-        .lt('entry_date', beforeDate)
-        .order('entry_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!data) return null;
-      return Number(data.closing_balance) || 0;
-    },
-    [],
-  );
-
-  /** After saving an entry, recalculate opening_balance for all subsequent
-   *  entries (same vehicle + fuel type, strictly after the saved entry's date)
-   *  based on the preceding entry's closing_balance. Done sequentially. */
-  const recalcChain = useCallback(
-    async (vehicleId: string, fuelTypeId: string, fromDate: string) => {
-      const { data: subsequent } = await supabase
-        .from('daily_entries')
-        .select('id, entry_date, opening_balance, received_azs, transfer_in, transfer_out, consumption, closing_balance')
-        .eq('vehicle_id', vehicleId)
-        .eq('fuel_type_id', fuelTypeId)
-        .gt('entry_date', fromDate)
-        .order('entry_date', { ascending: true });
-
-      if (!subsequent || subsequent.length === 0) return;
-
-      // The "previous closing" for the first subsequent entry is the saved
-      // entry's closing — fetch it fresh to be safe.
-      let prevClosing = await getPreviousClosing(vehicleId, fuelTypeId, subsequent[0].entry_date);
-
-      for (const row of subsequent) {
-        const newOpening = prevClosing ?? 0;
-        const newClosing =
-          newOpening +
-          (Number(row.received_azs) || 0) +
-          (Number(row.transfer_in) || 0) -
-          (Number(row.transfer_out) || 0) -
-          (Number(row.consumption) || 0);
-
-        // Only update if something changed (avoid needless writes)
-        if (
-          newOpening !== (Number(row.opening_balance) || 0) ||
-          newClosing !== (Number(row.closing_balance) || 0)
-        ) {
-          await supabase
-            .from('daily_entries')
-            .update({ opening_balance: newOpening, closing_balance: newClosing })
-            .eq('id', row.id);
-        }
-        prevClosing = newClosing;
+  // The server is authoritative for the balance chain. Fetch the derived
+  // opening value only for display; it is never editable or trusted on save.
+  useEffect(() => {
+    if (!modalOpen || form.id || !form.vehicle_id || !form.fuel_type_id || !form.entry_date) return;
+    let active = true;
+    void apiClient.get('/entries/opening-balance', {
+      params: { vehicle_id: form.vehicle_id, fuel_type_id: form.fuel_type_id, entry_date: form.entry_date },
+    }).then(({ data }) => {
+      const opening = data?.opening_balance;
+      if (active && typeof opening === 'number') {
+        setForm((prev) => ({ ...prev, opening_balance: String(opening) }));
       }
-    },
-    [getPreviousClosing],
-  );
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [modalOpen, form.id, form.vehicle_id, form.fuel_type_id, form.entry_date]);
 
   // --------------------------------------------------------
   // Modal handlers
@@ -359,15 +307,9 @@ export function EntriesPage() {
     try {
       const isEdit = Boolean(form.id);
 
-      // Determine opening_balance:
-      // - For new entries: use previous entry's closing_balance (chain).
-      // - For edits: allow the user-entered opening (it may have been chain-recalc'd).
-      let opening = num(form.opening_balance);
-      if (!isEdit) {
-        const prev = await getPreviousClosing(form.vehicle_id, form.fuel_type_id, form.entry_date);
-        opening = prev ?? 0;
-      }
-
+      // This is display-only. The API resolves opening and closing balances
+      // from the persisted chain, so client state cannot alter them.
+      const opening = num(form.opening_balance);
       const closing = calcClosing({ ...form, opening_balance: String(opening) });
 
       const payload = {
@@ -385,17 +327,10 @@ export function EntriesPage() {
       };
 
       if (isEdit) {
-        const { error } = await supabase.from('daily_entries').update(payload).eq('id', form.id!);
-        if (error) throw error;
+        await apiClient.put(`/entries/${form.id}`, payload);
       } else {
-        const { error } = await supabase
-          .from('daily_entries')
-          .insert({ ...payload, created_by: user.id });
-        if (error) throw error;
+        await apiClient.post('/entries', { ...payload, created_by: user.id });
       }
-
-      // Recalculate downstream chain
-      await recalcChain(form.vehicle_id, form.fuel_type_id, form.entry_date);
 
       toast.success(t('saved'));
       closeModal();
@@ -418,11 +353,7 @@ export function EntriesPage() {
 
     setDeletingId(row.id);
     try {
-      const { error } = await supabase.from('daily_entries').delete().eq('id', row.id);
-      if (error) throw error;
-
-      // Recalculate downstream chain after deletion
-      await recalcChain(row.vehicle_id, row.fuel_type_id, row.entry_date);
+      await apiClient.delete(`/entries/${row.id}`);
 
       toast.success(t('delete'));
       await loadEntries();
@@ -437,7 +368,34 @@ export function EntriesPage() {
   // --------------------------------------------------------
   // Totals (computed from filtered entries only)
   // --------------------------------------------------------
-  const displayedEntries = useMemo(() => entries, [entries]);
+  const displayedEntries = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    const value = (entry: EntryRow, key: typeof sortKey): string | number => {
+      if (key === 'company') return entry.department?.company?.short_name ?? '';
+      if (key === 'vehicle_name') return entry.vehicle?.name_uz ?? '';
+      if (key === 'section_name') return entry.section?.name_uz ?? '';
+      if (key === 'fuel_name') return entry.fuel_type?.name_uz ?? '';
+      return entry[key] ?? '';
+    };
+    return entries.filter((e) =>
+      (!filterSection || e.section_id === filterSection) &&
+      (!filterFuel || e.fuel_type_id === filterFuel) &&
+      (!term || [e.entry_date, e.vehicle?.name_uz, e.vehicle?.code, e.department?.name_uz, e.department?.company?.short_name, e.section?.name_uz, e.fuel_type?.name_uz].some((v) => v?.toLocaleLowerCase().includes(term))),
+    ).sort((a, b) => {
+      const av = value(a, sortKey); const bv = value(b, sortKey);
+      const result = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv), 'uz');
+      return sortAsc ? result : -result;
+    });
+  }, [entries, filterSection, filterFuel, search, sortKey, sortAsc]);
+
+  const numericTotals = useMemo(() => displayedEntries.reduce((total, row) => ({
+    opening_balance: total.opening_balance + (row.opening_balance ?? 0), received_azs: total.received_azs + (row.received_azs ?? 0),
+    transfer_in: total.transfer_in + (row.transfer_in ?? 0), transfer_out: total.transfer_out + (row.transfer_out ?? 0),
+    consumption: total.consumption + (row.consumption ?? 0), closing_balance: total.closing_balance + (row.closing_balance ?? 0),
+  }), { opening_balance: 0, received_azs: 0, transfer_in: 0, transfer_out: 0, consumption: 0, closing_balance: 0 }), [displayedEntries]);
+  const deviation = fuelTotals.grand.actual - fuelTotals.grand.limit;
+  const deviationPct = fuelTotals.grand.limit > 0 ? (deviation / fuelTotals.grand.limit) * 100 : null;
+  const toggleSort = (key: typeof sortKey) => { if (sortKey === key) setSortAsc((v) => !v); else { setSortKey(key); setSortAsc(true); } };
 
   const fuelTotals = useMemo(
     () => computeFuelTotals(displayedEntries, fuelTypes, limits),
@@ -452,12 +410,12 @@ export function EntriesPage() {
     e.fuel_type
       ? `${ln(e.fuel_type)}${e.fuel_type.unit ? ` ${formatUnit(e.fuel_type.unit, lang)}` : ''}`
       : '—',
-    Number(e.opening_balance) || 0,
-    Number(e.received_azs) || 0,
-    Number(e.transfer_in) || 0,
-    Number(e.transfer_out) || 0,
-    Number(e.consumption) || 0,
-    Number(e.closing_balance) || 0,
+    exportNumber(e.opening_balance),
+    exportNumber(e.received_azs),
+    exportNumber(e.transfer_in),
+    exportNumber(e.transfer_out),
+    exportNumber(e.consumption),
+    exportNumber(e.closing_balance),
   ];
 
   // --------------------------------------------------------
@@ -489,46 +447,14 @@ export function EntriesPage() {
     // Build sheet manually with formulas
     const aoa: (string | number)[][] = [headers, ...dataRows];
 
-    // Add 2 empty rows, then Jami block
+    // Summary is calculated from exactly the rows being exported. Using values
+    // rather than spreadsheet formulas keeps it consistent in every viewer.
     aoa.push([]);
-    aoa.push([]);
-
-    const dataStart = 2; // first data row in Excel (1-based)
-    const dataEnd = dataStart + dataRows.length - 1;
-    const colFuel = 'E'; // Yoqilg'i turi column in table layout
-    const colActual = 'J'; // consumption column in table layout
-
-    // Jami block header
-    aoa.push([t('total')]);
-
-    // Per-fuel totals with SUMIF formulas
-    const fuelRowsStart = aoa.length + 1; // 1-based Excel row
-    for (const ft of fuelTypes) {
-      const fuelName = `${ln(ft)}${ft.unit ? ` ${formatUnit(ft.unit, lang)}` : ''}`;
-      const rowIdx = aoa.length + 1; // 1-based
-      aoa.push([
-        `${t('total')} ${fuelName}`,
-        '',
-        fuelName,
-        { f: `SUMIF(${colFuel}${dataStart}:${colFuel}${dataEnd},"${fuelName}",${colActual}${dataStart}:${colActual}${dataEnd})` } as unknown as string,
-        { f: `SUMIF(${colFuel}${dataStart}:${colFuel}${dataEnd},"${fuelName}",${colActual}${dataStart}:${colActual}${dataEnd})` } as unknown as string,
-        { f: `D${rowIdx}-E${rowIdx}` } as unknown as string,
-        { f: `IF(D${rowIdx}>0,F${rowIdx}/D${rowIdx},0)` } as unknown as string,
-      ]);
+    aoa.push([t('total'), t('fuelType'), t('consumption')]);
+    for (const ft of fuelTotals.perFuel) {
+      aoa.push([`${t('total')} ${ft.fuelName}`, ft.fuelName, ft.actual]);
     }
-
-    // Grand total row
-    const grandRowIdx = aoa.length + 1;
-    const fuelRowsEnd = grandRowIdx - 1;
-    aoa.push([
-      t('grandTotal'),
-      '',
-      '',
-      { f: `SUM(D${fuelRowsStart}:D${fuelRowsEnd})` } as unknown as string,
-      { f: `SUM(E${fuelRowsStart}:E${fuelRowsEnd})` } as unknown as string,
-      { f: `D${grandRowIdx}-E${grandRowIdx}` } as unknown as string,
-      { f: `IF(D${grandRowIdx}>0,F${grandRowIdx}/D${grandRowIdx},0)` } as unknown as string,
-    ]);
+    aoa.push([t('grandTotal'), '', fuelTotals.grand.actual]);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -685,7 +611,11 @@ export function EntriesPage() {
               ))}
           </select>
         </div>
+        <div><label className={labelCls}>{t('section')}</label><select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} className={inputCls}><option value="">{t('all')}</option>{sections.map((x) => <option key={x.id} value={x.id}>{ln(x)}</option>)}</select></div>
+        <div><label className={labelCls}>{t('fuelType')}</label><select value={filterFuel} onChange={(e) => setFilterFuel(e.target.value)} className={inputCls}><option value="">{t('all')}</option>{fuelTypes.map((x) => <option key={x.id} value={x.id}>{ln(x)}</option>)}</select></div>
+        <div><label className={labelCls}>Qidirish</label><input value={search} onChange={(e) => setSearch(e.target.value)} className={inputCls} placeholder="Texnika, kompaniya..." /></div>
       </div>
+      <div className="rounded-xl border border-border bg-card p-4 text-sm"><span className="font-semibold">{t('total')} limit: {fmtNum(fuelTotals.grand.limit)}</span><span className="ml-4">Fakt: {fmtNum(fuelTotals.grand.actual)}</span><span className="ml-4">Og‘ish: {fmtNum(deviation)}</span><span className="ml-4">Og‘ish %: {deviationPct == null ? '—' : fmtPct(deviationPct)}</span></div>
 
       {/* Table */}
       <div className="print-table-wrapper overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -693,11 +623,12 @@ export function EntriesPage() {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="px-3 py-2.5 text-left font-semibold text-foreground">{t('date')}</th>
-                <th className="px-3 py-2.5 text-left font-semibold text-foreground">{t('vehicle')}</th>
-                <th className="px-3 py-2.5 text-left font-semibold text-foreground">{t('code')}</th>
-                <th className="px-3 py-2.5 text-left font-semibold text-foreground">{t('section')}</th>
-                <th className="px-3 py-2.5 text-left font-semibold text-foreground">{t('fuelType')}</th>
+                <th onClick={() => toggleSort('entry_date')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('date')}</th>
+                <th onClick={() => toggleSort('vehicle_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('vehicle')}</th>
+                <th onClick={() => toggleSort('company')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">Kompaniya</th>
+                <th onClick={() => toggleSort('department_id')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">Sex</th>
+                <th onClick={() => toggleSort('section_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('section')}</th>
+                <th onClick={() => toggleSort('fuel_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('fuelType')}</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('opening')}</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('receivedAzs')}</th>
                 <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('transferIn')}</th>
@@ -710,7 +641,7 @@ export function EntriesPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
+                  <td colSpan={13} className="px-3 py-8 text-center text-muted-foreground">
                     <div className="inline-flex items-center gap-2">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-primary" />
                       {t('loading')}
@@ -720,7 +651,7 @@ export function EntriesPage() {
               )}
               {!loading && displayedEntries.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
+                  <td colSpan={13} className="px-3 py-8 text-center text-muted-foreground">
                     {t('noData')}
                   </td>
                 </tr>
@@ -729,8 +660,9 @@ export function EntriesPage() {
                 displayedEntries.map((e) => (
                   <tr key={e.id} className="border-b border-border transition hover:bg-muted/30">
                     <td className="px-3 py-2 text-foreground whitespace-nowrap">{e.entry_date}</td>
-                    <td className="px-3 py-2 text-foreground">{e.vehicle ? ln(e.vehicle) : '—'}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{e.vehicle?.code ?? '—'}</td>
+                    <td className="px-3 py-2 text-foreground">{e.vehicle ? `${e.vehicle.code} — ${ln(e.vehicle)}` : '—'}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{e.department?.company?.short_name ?? '—'}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{e.department ? ln(e.department) : '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{e.section ? ln(e.section) : '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{e.fuel_type ? `${ln(e.fuel_type)}` : '—'}{e.fuel_type?.unit ? <span className="ml-1 text-xs text-muted-foreground/70">{formatUnit(e.fuel_type.unit, lang)}</span> : null}</td>
                     <td className="px-3 py-2 text-right text-foreground">{fmtNum(e.opening_balance)}</td>
@@ -767,23 +699,10 @@ export function EntriesPage() {
             </tbody>
             {displayedEntries.length > 0 && (
               <tfoot className="border-t-2 border-border bg-muted/40">
-                {/* Per-fuel total rows */}
-                {fuelTotals.perFuel.map((ft) => (
-                  <tr key={`total-${ft.fuelTypeId}`} className="border-b border-border font-semibold">
-                    <td className="px-3 py-2.5 text-foreground" colSpan={4}>
-                      {t('total')} {ft.fuelName}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-foreground">{fmtNum(ft.limit)}</td>
-                    <td className="px-3 py-2.5 text-right text-foreground" colSpan={4}>{fmtNum(ft.actual)}</td>
-                    <td className={`px-3 py-2.5 text-right ${ft.saved >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {ft.saved > 0 ? '+' : ''}{fmtNum(ft.saved)}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right ${ft.efficiency >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {fmtPct(ft.efficiency)}
-                    </td>
-                    <td className="px-3 py-2.5" colSpan={2} />
-                  </tr>
-                ))}
+                <tr className="font-semibold">
+                  <td className="px-3 py-2.5" colSpan={6}>{t('total')}</td>
+                  <td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.opening_balance)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.received_azs)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.transfer_in)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.transfer_out)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.consumption)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.closing_balance)}</td><td />
+                </tr>
               </tfoot>
             )}
           </table>
@@ -917,8 +836,9 @@ export function EntriesPage() {
                     type="number"
                     step="any"
                     value={form.opening_balance}
-                    onChange={(e) => handleField('opening_balance', e.target.value)}
-                    className={inputCls}
+                    readOnly
+                    aria-readonly="true"
+                    className={`${inputCls} cursor-not-allowed`}
                   />
                 </div>
 

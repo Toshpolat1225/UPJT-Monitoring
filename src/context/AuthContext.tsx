@@ -1,10 +1,26 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import type { Session, User } from '@supabase/supabase-js';
-import { supabase, type Profile, type AppRole } from '../lib/supabase';
+import axios from 'axios';
+import apiClient from '../lib/client';
+import type { AppRole } from '../types';
+
+interface LocalSession {
+  access_token: string;
+  token_type: string;
+}
+
+interface Profile {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  department_id: string | null;
+  company_id: string | null;
+  created_at: string;
+  roles?: AppRole[];
+}
 
 interface AuthState {
-  user: User | null;
-  session: Session | null;
+  user: Profile | null;
+  session: LocalSession | null;
   profile: Profile | null;
   roles: AppRole[];
   loading: boolean;
@@ -31,53 +47,60 @@ const AuthContext = createContext<AuthState>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<LocalSession | null>(null);
+  const [user, setUser] = useState<Profile | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadProfile = useCallback(async (uid: string) => {
-    const [{ data: p, error: pErr }, { data: r, error: rErr }] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
-      supabase.from('user_roles').select('role').eq('user_id', uid),
-    ]);
-    if (pErr) console.error('Failed to load profile:', pErr.message);
-    if (rErr) console.error('Failed to load roles:', rErr.message);
-    setProfile(p as Profile | null);
-    setRoles((r ?? []).map((x: { role: AppRole }) => x.role));
+  const loadProfile = useCallback(async () => {
+    const accessToken = localStorage.getItem('accessToken');
+
+    if (!accessToken) {
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setRoles([]);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data } = await apiClient.get('/users/me');
+      const normalizedProfile: Profile = {
+        id: data.id,
+        full_name: data.full_name ?? null,
+        email: data.email ?? null,
+        department_id: data.department_id ?? null,
+        company_id: data.company_id ?? null,
+        created_at: data.created_at,
+        roles: Array.isArray(data.roles) ? data.roles : [],
+      };
+
+      setSession({ access_token: accessToken, token_type: 'bearer' });
+      setUser(normalizedProfile);
+      setProfile(normalizedProfile);
+      setRoles(normalizedProfile.roles ?? []);
+    } catch (error: unknown) {
+      // Only a confirmed authentication failure invalidates local credentials.
+      // A transient network/5xx response must not turn into a forced logout.
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        localStorage.removeItem('accessToken');
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setRoles([]);
+      } else {
+        console.error('Failed to load local profile:', error);
+        setSession({ access_token: accessToken, token_type: 'bearer' });
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      if (!mounted) return;
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) {
-        loadProfile(s.user.id).finally(() => { if (mounted) setLoading(false); });
-      } else {
-        setProfile(null);
-        setRoles([]);
-        setLoading(false);
-      }
-    });
-
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
-      if (!mounted) return;
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) {
-        await loadProfile(s.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    void loadProfile();
   }, [loadProfile]);
 
   const value: AuthState = {
@@ -90,8 +113,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAdmin: roles.includes('admin'),
     hasRole: (r) => roles.includes(r),
     hasAny: (rs) => rs.some((r) => roles.includes(r)),
-    signOut: async () => { await supabase.auth.signOut(); },
-    refresh: async () => { if (user) await loadProfile(user.id); },
+    signOut: async () => {
+      localStorage.removeItem('accessToken');
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setRoles([]);
+      setLoading(false);
+    },
+    refresh: async () => {
+      await loadProfile();
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

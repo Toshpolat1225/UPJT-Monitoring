@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react';
-import { supabase, type Profile, type AppRole, type RolePermission, type Company } from '../lib/supabase';
+import apiClient from '../lib/client';
+import { type Profile, type AppRole, type RolePermission, type Company } from '../types';
 import { useI18n } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import { getErrorMessage } from '../lib/errorMessage';
+import { Plus, Pencil, Trash2, X, KeyRound, Power } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ROLES: AppRole[] = ['admin', 'gsm', 'operator', 'master', 'management'];
 const MODULES = ['entries', 'limits', 'master_data', 'users', 'audit'] as const;
 const PERMS = ['view', 'create', 'edit', 'delete'] as const;
 
-interface UserRoleRow { id: string; user_id: string; role: AppRole }
 interface Dept { id: string; name_uz: string }
+type UserProfile = Profile & { roles?: AppRole[] };
 
 export function UsersPage() {
   const { t } = useI18n();
+  const { hasRole } = useAuth();
   const [tab, setTab] = useState<'users' | 'permissions'>('users');
+
+  if (!hasRole('admin')) {
+    return <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">{t('noPermission')}</div>;
+  }
 
   return (
     <div className="space-y-5">
@@ -41,8 +48,7 @@ export function UsersPage() {
 function UsersTab() {
   const { t, ln } = useI18n();
   const { user } = useAuth();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [roles, setRoles] = useState<UserRoleRow[]>([]);
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [depts, setDepts] = useState<Dept[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [open, setOpen] = useState(false);
@@ -51,20 +57,18 @@ function UsersTab() {
   const [form, setForm] = useState({ full_name: '', email: '', department_id: '', company_id: '', roles: [] as string[], password: '', passwordConfirm: '' });
 
   const load = async () => {
-    const [p, r, d, c] = await Promise.all([
-      supabase.from('profiles').select('*'),
-      supabase.from('user_roles').select('id,user_id,role'),
-      supabase.from('departments').select('id,name_uz').order('name_uz'),
-      supabase.from('companies').select('*').order('short_name'),
+    const [p, d, c] = await Promise.all([
+      apiClient.get('/users'),
+      apiClient.get('/master-data/departments'),
+      apiClient.get('/master-data/companies'),
     ]);
-    setProfiles((p.data ?? []) as Profile[]);
-    setRoles((r.data ?? []) as UserRoleRow[]);
+    setProfiles((p.data ?? []) as UserProfile[]);
     setDepts((d.data ?? []) as Dept[]);
     setCompanies((c.data ?? []) as Company[]);
   };
   useEffect(() => { load(); }, []);
 
-  const userRoles = (uid: string) => roles.filter((r) => r.user_id === uid).map((r) => r.role);
+  const userRoles = (uid: string) => profiles.find((p) => p.id === uid)?.roles ?? [];
 
   const openNew = () => { setEditing(null); setForm({ full_name: '', email: '', department_id: '', company_id: '', roles: [], password: '', passwordConfirm: '' }); setOpen(true); };
   const openEdit = (p: Profile) => { setEditing(p); setForm({ full_name: p.full_name ?? '', email: p.email ?? '', department_id: p.department_id ?? '', company_id: p.company_id ?? '', roles: userRoles(p.id), password: '', passwordConfirm: '' }); setOpen(true); };
@@ -77,15 +81,13 @@ function UsersTab() {
     if (!form.roles.length) { toast.error(t('selectRole')); return; }
 
     if (editing) {
-      const { error: pErr } = await supabase.from('profiles').update({
-        full_name: form.full_name, email: form.email.trim(), department_id: form.department_id || null, company_id: form.company_id || null,
-      }).eq('id', editing.id);
-      if (pErr) return toast.error(pErr.message);
-
-      await supabase.from('user_roles').delete().eq('user_id', editing.id);
-      if (form.roles.length) {
-        await supabase.from('user_roles').insert(form.roles.map((r) => ({ user_id: editing.id, role: r })));
-      }
+      await apiClient.put(`/users/${editing.id}`, {
+        full_name: form.full_name,
+        email: form.email.trim(),
+        department_id: form.department_id || null,
+        company_id: form.company_id || null,
+        roles: form.roles,
+      });
       toast.success(t('saved'));
     } else {
       if (!form.password || form.password.length < 8) { toast.error(t('passwordTooShort')); return; }
@@ -93,31 +95,17 @@ function UsersTab() {
 
       setCreating(true);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify({
-            full_name: form.full_name.trim(),
-            email: form.email.trim(),
-            department_id: form.department_id || null,
-            company_id: form.company_id || null,
-            roles: form.roles,
-            password: form.password,
-          }),
+        await apiClient.post('/users', {
+          full_name: form.full_name.trim(),
+          email: form.email.trim(),
+          department_id: form.department_id || null,
+          company_id: form.company_id || null,
+          roles: form.roles,
+          password: form.password,
         });
-        const result = await res.json();
-        if (!res.ok || result.error) {
-          toast.error(result.error || t('userCreateFailed'));
-          setCreating(false);
-          return;
-        }
         toast.success(t('userCreated'));
-      } catch {
-        toast.error(t('userCreateFailed'));
+      } catch (err: unknown) {
+        toast.error(getErrorMessage(err, t('userCreateFailed')));
         setCreating(false);
         return;
       }
@@ -127,11 +115,35 @@ function UsersTab() {
     await load();
   };
 
+
+  const setStatus = async (p: UserProfile) => {
+    if (p.id === user?.id) { toast.error(t('noPermission')); return; }
+    try {
+      await apiClient.put(`/users/${p.id}/status`, { is_active: !p.is_active });
+      await load();
+    } catch (err: unknown) { toast.error(getErrorMessage(err, t('error'))); }
+  };
+
+  const resetPassword = async (p: UserProfile) => {
+    const password = window.prompt('Yangi parol (kamida 8 belgi)');
+    if (!password) return;
+    const confirmation = window.prompt('Yangi parolni tasdiqlang');
+    if (password !== confirmation) { toast.error(t('passwordMismatch')); return; }
+    try {
+      await apiClient.put(`/users/${p.id}/password`, { password });
+      toast.success(t('saved'));
+    } catch (err: unknown) { toast.error(getErrorMessage(err, t('error'))); }
+  };
+
   const del = async (p: Profile) => {
     if (!confirm(t('confirmDelete'))) return;
-    const { error } = await supabase.from('profiles').delete().eq('id', p.id);
-    if (error) toast.error(error.message);
-    else { toast.success(t('saved')); await load(); }
+    try {
+      await apiClient.delete(`/users/${p.id}`);
+      toast.success(t('saved'));
+      await load();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, t('error')));
+    }
   };
 
   return (
@@ -225,6 +237,7 @@ function UsersTab() {
               <th className="py-2 font-medium">{t('company')}</th>
               <th className="py-2 font-medium">{t('department')}</th>
               <th className="py-2 font-medium">{t('role')}</th>
+              <th className="py-2 font-medium">Status</th>
               <th className="py-2 text-right font-medium">{t('actions')}</th>
             </tr>
           </thead>
@@ -242,8 +255,11 @@ function UsersTab() {
                     ))}
                   </div>
                 </td>
+                <td className="py-2"><span className={`rounded px-2 py-0.5 text-xs ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}>{p.is_active ? 'Active' : 'Inactive'}</span></td>
                 <td className="py-2 text-right">
                   <button onClick={() => openEdit(p)} className="rounded p-1 text-muted-foreground hover:bg-muted"><Pencil className="h-4 w-4" /></button>
+                  <button title="Set new password" onClick={() => resetPassword(p)} className="rounded p-1 text-muted-foreground hover:bg-muted"><KeyRound className="h-4 w-4" /></button>
+                  <button title={p.is_active ? 'Deactivate' : 'Activate'} onClick={() => setStatus(p)} disabled={p.id === user?.id} className="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"><Power className="h-4 w-4" /></button>
                   <button onClick={() => del(p)} disabled={p.id === user?.id} className="rounded p-1 text-destructive hover:bg-muted disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
                 </td>
               </tr>
@@ -261,7 +277,7 @@ function PermissionsTab() {
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const { data } = await supabase.from('role_permissions').select('*');
+    const { data } = await apiClient.get('/permissions/role-permissions');
     setRows((data ?? []) as RolePermission[]);
   };
   useEffect(() => { load(); }, []);
@@ -272,13 +288,21 @@ function PermissionsTab() {
   const toggle = async (role: string, module: string, perm: string, value: boolean) => {
     setBusy(true);
     const existing = rows.find((r) => r.role === role && r.module === module && r.permission === perm);
-    if (existing) {
-      await supabase.from('role_permissions').update({ allowed: value }).eq('id', existing.id);
-    } else {
-      await supabase.from('role_permissions').insert({ role: role as AppRole, module, permission: perm, allowed: value });
+    try {
+      if (existing) {
+        await apiClient.put(`/permissions/role-permissions/${existing.id}`, { allowed: value });
+      } else {
+        await apiClient.post('/permissions/role-permissions', {
+          role: role as AppRole,
+          module,
+          permission: perm,
+          allowed: value,
+        });
+      }
+      await load();
+    } finally {
+      setBusy(false);
     }
-    await load();
-    setBusy(false);
   };
 
   return (

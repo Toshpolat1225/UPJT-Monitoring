@@ -12,7 +12,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { AlertTriangle, TrendingUp, Fuel, Gauge, Printer } from 'lucide-react';
-import { supabase, type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry, fetchEnabledFuelKeys } from '../lib/supabase';
+import apiClient from '../lib/client';
+import { type Department, type Section, type FuelType, type MonthlyLimit, type DailyEntry } from '../types';
 import { useI18n, formatUnit } from '../lib/i18n';
 
 // ============================================================
@@ -38,8 +39,6 @@ const FUEL_STYLES: Record<string, FuelStyle> = {
 };
 
 
-
-const PAGE_SIZE = 1000;
 
 // ============================================================
 // Helpers
@@ -126,23 +125,30 @@ export function DashboardPage() {
   const [enabledFuels, setEnabledFuels] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // --------------------------------------------------------
   // Load reference data once
   // --------------------------------------------------------
   useEffect(() => {
     (async () => {
-      const [{ data: depts }, { data: secs }, { data: fuels }, fuelKeys] = await Promise.all([
-        supabase.from('departments').select('*').order('code'),
-        supabase.from('sections').select('*').order('name_uz'),
-        supabase.from('fuel_types').select('*').order('code'),
-        fetchEnabledFuelKeys(),
+      const [deptsRes, secsRes, fuelsRes, matrixRes] = await Promise.all([
+        apiClient.get('/master-data/departments'),
+        apiClient.get('/master-data/sections'),
+        apiClient.get('/master-data/fuel-types'),
+        apiClient.get('/fuel-matrix'),
       ]);
-      setDepartments((depts as Department[]) ?? []);
-      setSections((secs as Section[]) ?? []);
-      setFuelTypes((fuels as FuelType[]) ?? []);
-      setEnabledFuels(fuelKeys);
+
+      const depts = (deptsRes.data as Department[]) ?? [];
+      const secs = (secsRes.data as Section[]) ?? [];
+      const fuels = (fuelsRes.data as FuelType[]) ?? [];
+      const matrix = (matrixRes.data as Array<{ department_id: string; fuel_type_id: string; is_active: boolean }>) ?? [];
+
+      setDepartments(depts);
+      setSections(secs);
+      setFuelTypes(fuels);
+      setEnabledFuels(
+        new Set(matrix.filter((row) => row.is_active).map((row) => `${row.department_id}|${row.fuel_type_id}`)),
+      );
     })();
   }, []);
 
@@ -152,62 +158,31 @@ export function DashboardPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Monthly limits for the period derived from dateTo
-      const { data: limData } = await supabase
-        .from('monthly_limits')
-        .select('*')
-        .eq('year', year)
-        .eq('month', month + 1);
-      setLimits((limData as MonthlyLimit[]) ?? []);
+      const [limitsRes, entriesRes] = await Promise.all([
+        apiClient.get('/limits', {
+          params: {
+            year,
+            month: month + 1,
+          },
+        }),
+        apiClient.get('/entries', {
+          params: {
+            date_from: dateFrom,
+            date_to: dateTo,
+          },
+        }),
+      ]);
 
-      // Daily entries — paginated, filtered to the selected date range
-      const all: DailyEntry[] = [];
-      let page = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const from = page * PAGE_SIZE;
-        const to = from + PAGE_SIZE - 1;
-        const { data, error } = await supabase
-          .from('daily_entries')
-          .select('*')
-          .gte('entry_date', dateFrom)
-          .lte('entry_date', dateTo)
-          .order('entry_date', { ascending: true })
-          .range(from, to);
-        if (error) break;
-        const rows = (data as DailyEntry[]) ?? [];
-        all.push(...rows);
-        if (rows.length < PAGE_SIZE) break;
-        page += 1;
-      }
-      setEntries(all);
+      setLimits((limitsRes.data as MonthlyLimit[]) ?? []);
+      setEntries((entriesRes.data as DailyEntry[]) ?? []);
     } finally {
       setLoading(false);
     }
   }, [year, month, dateFrom, dateTo]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData, refreshTrigger]);
-
-  // --------------------------------------------------------
-  // Realtime subscriptions — bump refreshTrigger on any change
-  // --------------------------------------------------------
-  useEffect(() => {
-    const channel = supabase
-      .channel('dashboard-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_entries' }, () =>
-        setRefreshTrigger((n) => n + 1),
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_limits' }, () =>
-        setRefreshTrigger((n) => n + 1),
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    void loadData();
+  }, [loadData]);
 
   // --------------------------------------------------------
   // Block 1 data loading ("Kecha" group — dailyDateFrom/dailyDateTo)
@@ -216,31 +191,20 @@ export function DashboardPage() {
     const load = async () => {
       const fromY = parseInt(dailyDateFrom.slice(0, 4));
       const fromM = parseInt(dailyDateFrom.slice(5, 7));
-      const { data: limData } = await supabase
-        .from('monthly_limits')
-        .select('*')
-        .eq('year', fromY)
-        .eq('month', fromM);
-      setBlock1Limits((limData as MonthlyLimit[]) ?? []);
-      const all: DailyEntry[] = [];
-      let page = 0;
-      while (true) {
-        const fromIdx = page * PAGE_SIZE;
-        const toIdx = fromIdx + PAGE_SIZE - 1;
-        const { data, error } = await supabase
-          .from('daily_entries')
-          .select('*')
-          .gte('entry_date', dailyDateFrom)
-          .lte('entry_date', dailyDateTo)
-          .order('entry_date', { ascending: true })
-          .range(fromIdx, toIdx);
-        if (error) break;
-        const rows = (data as DailyEntry[]) ?? [];
-        all.push(...rows);
-        if (rows.length < PAGE_SIZE) break;
-        page += 1;
-      }
-      setBlock1Entries(all);
+      const [limitsRes, entriesRes] = await Promise.all([
+        apiClient.get('/limits', {
+          params: { year: fromY, month: fromM },
+        }),
+        apiClient.get('/entries', {
+          params: {
+            date_from: dailyDateFrom,
+            date_to: dailyDateTo,
+          },
+        }),
+      ]);
+
+      setBlock1Limits((limitsRes.data as MonthlyLimit[]) ?? []);
+      setBlock1Entries((entriesRes.data as DailyEntry[]) ?? []);
     };
     if (dailyDateTo >= dailyDateFrom) load();
     else setBlock1Entries([]);
@@ -253,31 +217,20 @@ export function DashboardPage() {
     const load = async () => {
       const fromY = parseInt(periodDateFrom.slice(0, 4));
       const fromM = parseInt(periodDateFrom.slice(5, 7));
-      const { data: limData } = await supabase
-        .from('monthly_limits')
-        .select('*')
-        .eq('year', fromY)
-        .eq('month', fromM);
-      setBlock2Limits((limData as MonthlyLimit[]) ?? []);
-      const all: DailyEntry[] = [];
-      let page = 0;
-      while (true) {
-        const fromIdx = page * PAGE_SIZE;
-        const toIdx = fromIdx + PAGE_SIZE - 1;
-        const { data, error } = await supabase
-          .from('daily_entries')
-          .select('*')
-          .gte('entry_date', periodDateFrom)
-          .lte('entry_date', periodDateTo)
-          .order('entry_date', { ascending: true })
-          .range(fromIdx, toIdx);
-        if (error) break;
-        const rows = (data as DailyEntry[]) ?? [];
-        all.push(...rows);
-        if (rows.length < PAGE_SIZE) break;
-        page += 1;
-      }
-      setBlock2Entries(all);
+      const [limitsRes, entriesRes] = await Promise.all([
+        apiClient.get('/limits', {
+          params: { year: fromY, month: fromM },
+        }),
+        apiClient.get('/entries', {
+          params: {
+            date_from: periodDateFrom,
+            date_to: periodDateTo,
+          },
+        }),
+      ]);
+
+      setBlock2Limits((limitsRes.data as MonthlyLimit[]) ?? []);
+      setBlock2Entries((entriesRes.data as DailyEntry[]) ?? []);
     };
     if (periodDateTo >= periodDateFrom) load();
     else setBlock2Entries([]);

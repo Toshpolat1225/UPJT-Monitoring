@@ -1,30 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import apiClient from '../lib/client';
 import { useI18n } from '../lib/i18n';
-import { supabase } from '../lib/supabase';
 import { Fuel } from 'lucide-react';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorMessage';
 
 export function AuthPage() {
-  const { user, loading } = useAuth();
+  const { refresh } = useAuth();
   const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!loading && user) {
-      // App.tsx handles navigation — this is just a safety net
-    }
-  }, [loading, user]);
-
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) toast.error(error.message);
-    else toast.success(t('welcome'));
+
+    try {
+      const { data } = await apiClient.post('/auth/login', { email, password });
+      localStorage.setItem('accessToken', data.access_token);
+      await refresh();
+      toast.success(t('welcome'));
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Login failed'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

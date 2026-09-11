@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Calendar, Filter, Save, Table2, AlertCircle } from 'lucide-react';
-import { supabase, type Department, type FuelType, type MonthlyLimit, type Section, fetchEnabledFuelKeys } from '../lib/supabase';
+import apiClient from '../lib/client';
+import { type Department, type FuelType, type MonthlyLimit, type Section } from '../types';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
+import { getErrorMessage } from '../lib/errorMessage';
 
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
@@ -78,20 +80,24 @@ export function LimitsPage() {
     (async () => {
       setLoading(true);
       try {
-        const [deptsRes, secsRes, fuelsRes, fuelKeys] = await Promise.all([
-          supabase.from('departments').select('*').order('code'),
-          supabase.from('sections').select('*').order('name_uz'),
-          supabase.from('fuel_types').select('*').order('code'),
-          fetchEnabledFuelKeys(),
+        const [deptsRes, secsRes, fuelsRes, matrixRes] = await Promise.all([
+          apiClient.get('/master-data/departments'),
+          apiClient.get('/master-data/sections'),
+          apiClient.get('/master-data/fuel-types'),
+          apiClient.get('/fuel-matrix'),
         ]);
 
         if (cancelled) return;
 
         const depts = ((deptsRes.data as Department[]) ?? []).filter((d) => !d.is_total);
+        const matrix = (matrixRes.data as Array<{ department_id: string; fuel_type_id: string; is_active: boolean }>) ?? [];
+
         setDepartments(depts);
         setSections((secsRes.data as Section[]) ?? []);
         setFuelTypes((fuelsRes.data as FuelType[]) ?? []);
-        setEnabledFuels(fuelKeys);
+        setEnabledFuels(
+          new Set(matrix.filter((row) => row.is_active).map((row) => `${row.department_id}|${row.fuel_type_id}`)),
+        );
       } catch (err) {
         if (!cancelled) {
           console.error(err);
@@ -163,13 +169,9 @@ export function LimitsPage() {
   const loadLimits = useCallback(async () => {
     if (loading) return; // wait for reference data to be ready
     try {
-      const { data, error } = await supabase
-        .from('monthly_limits')
-        .select('*')
-        .eq('year', year)
-        .eq('month', month);
-
-      if (error) throw error;
+      const { data } = await apiClient.get('/limits', {
+        params: { year, month },
+      });
 
       const next: Record<ValueKey, string> = {};
       for (const row of (data as MonthlyLimit[]) ?? []) {
@@ -253,13 +255,9 @@ export function LimitsPage() {
     setSaving(true);
     try {
       // Fetch existing limits for the period to decide UPDATE vs INSERT.
-      const { data: existing, error: fetchError } = await supabase
-        .from('monthly_limits')
-        .select('id, department_id, section_id, fuel_type_id')
-        .eq('year', year)
-        .eq('month', month);
-
-      if (fetchError) throw fetchError;
+      const { data: existing } = await apiClient.get('/limits', {
+        params: { year, month },
+      });
 
       const existingMap = new Map<string, string>();
       for (const row of (existing ?? []) as Array<{
@@ -298,21 +296,26 @@ export function LimitsPage() {
         }
       }
 
-      // Run updates and inserts. Supabase-js filters are stateless per call,
+      // Run updates and inserts independently so each request has its own filters.
       // so we issue one update per id (safe and simple for modest grids).
       let firstError: string | null = null;
 
       for (const u of toUpdate) {
-        const { error } = await supabase
-          .from('monthly_limits')
-          .update({ limit_value: u.limit_value })
-          .eq('id', u.id);
-        if (error && !firstError) firstError = error.message;
+        try {
+          await apiClient.put(`/limits/${u.id}`, { limit_value: u.limit_value });
+          } catch (err: unknown) {
+            if (!firstError) firstError = getErrorMessage(err, 'Failed to update limit');
+        }
       }
 
       if (toInsert.length > 0) {
-        const { error: insertError } = await supabase.from('monthly_limits').insert(toInsert);
-        if (insertError && !firstError) firstError = insertError.message;
+        for (const item of toInsert) {
+          try {
+            await apiClient.post('/limits', item);
+            } catch (err: unknown) {
+              if (!firstError) firstError = getErrorMessage(err, 'Failed to insert limit');
+          }
+        }
       }
 
       if (firstError) throw new Error(firstError);

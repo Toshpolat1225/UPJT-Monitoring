@@ -1,0 +1,135 @@
+# --- Load Dynamic Modules First ---
+
+worker_processes auto;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 2048;
+    multi_accept on;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    # --- Logging Settings ---
+    log_format  main_json escape=json '{ "timestamp": "$time_iso8601", "client_ip": "$remote_addr", '
+                                      '"request": "$request", "status": $status, "body_bytes_sent": $body_bytes_sent, "http_referer": "$http_referer", '
+                                      '"http_user_agent": "$http_user_agent", "http_x_forwarded_for": "$http_x_forwarded_for", '
+                                      '"request_time": $request_time, "upstream_response_time": "$upstream_response_time" }';
+    access_log  /var/log/nginx/access.log  main_json;
+    error_log   /var/log/nginx/error.log   warn;
+
+    # --- Performance Tuning ---
+    sendfile        on;
+    tcp_nopush      on;
+    tcp_nodelay     on;
+    keepalive_timeout 65;
+    keepalive_requests 1000;
+    types_hash_max_size 2048;
+    client_max_body_size 20M;
+    server_tokens off;
+
+    # --- Gzip and Brotli Compression ---
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
+
+    # --- Rate Limiting ---
+    # General API limit: 10 requests/second, with a burst of 20
+    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+    # Login limit: 5 requests/minute, burst of 5, no delay
+    limit_req_zone $binary_remote_addr zone=login_limit:10m rate=5r/m;
+
+    # --- Upstream for Backend ---
+    upstream backend_api {
+        server backend:8000;
+        keepalive 32;
+    }
+
+    # --- HTTP Server ---
+    server {
+        listen 80;
+        server_name your.domain.com; # <-- REPLACE
+
+        # Let's Encrypt ACME challenge
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        # Redirect all other HTTP traffic to HTTPS
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    # --- HTTPS Server Configuration ---
+    server {
+        listen 443 ssl http2;
+        server_name your.domain.com; # <-- REPLACE
+
+        # --- SSL/TLS ---
+        ssl_certificate /etc/letsencrypt/live/your.domain.com/fullchain.pem; # <-- REPLACE
+        ssl_certificate_key /etc/letsencrypt/live/your.domain.com/privkey.pem; # <-- REPLACE
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_tickets off;
+
+        # --- Modern & Secure TLS ---
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers on;
+
+        # --- Security Headers ---
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; frame-ancestors 'none';" always;
+
+        # --- API Proxy with Rate Limiting ---
+        location /api/ {
+            # Apply general API rate limit
+            limit_req zone=api_limit burst=20 nodelay;
+
+            # Special rate limit for login endpoint
+            location /api/auth/token {
+                limit_req zone=login_limit burst=5;
+                proxy_pass http://backend_api/auth/token;
+                # Proxy settings are inherited, but can be overridden
+            }
+
+            proxy_pass http://backend_api/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "keep-alive";
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # --- WebSocket Proxy ---
+        location /ws/ {
+            proxy_pass http://backend_api/ws/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host $host;
+        }
+
+        # --- Frontend (SPA) Static Files ---
+        location / {
+            root /usr/share/nginx/html;
+            # First, try to serve the file, then the directory, then fall back to index.html for SPA routing
+            try_files $uri $uri/ /index.html;
+        }
+    }
+}

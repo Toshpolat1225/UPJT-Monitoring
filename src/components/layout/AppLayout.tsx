@@ -18,7 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../lib/i18n';
 import { useTheme } from '../../lib/theme';
 import type { ViewKey } from '../../App';
-import type { AppRole } from '../../lib/supabase';
+import type { AppRole } from '../../types';
 
 interface NavItem {
   key: ViewKey;

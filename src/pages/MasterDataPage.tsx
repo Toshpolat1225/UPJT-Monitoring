@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, X, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import apiClient from '../lib/client';
 import {
-  supabase,
   type Department,
   type Section,
   type Vehicle,
@@ -10,9 +10,10 @@ import {
   type FuelUnit,
   type Company,
   type DepartmentFuelMatrix,
-} from '../lib/supabase';
+} from '../types';
 import { useI18n, formatUnit } from '../lib/i18n';
 import { useAuth } from '../context/AuthContext';
+import { getErrorMessage } from '../lib/errorMessage';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -241,72 +242,77 @@ export function MasterDataPage() {
   const fetchDepartments = useCallback(async () => {
     setLoading((s) => ({ ...s, departments: true }));
     setError((s) => ({ ...s, departments: null }));
-    const { data, error: e } = await supabase
-      .from('departments')
-      .select('*')
-      .order('code', { ascending: true });
-    if (e) setError((s) => ({ ...s, departments: e.message }));
-    else setDepartments((data as Department[]) ?? []);
+    try {
+      const { data } = await apiClient.get('/master-data/departments');
+      setDepartments((data as Department[]) ?? []);
+      } catch (e: unknown) {
+        setError((s) => ({ ...s, departments: getErrorMessage(e, 'Failed to load departments') }));
+    }
     setLoading((s) => ({ ...s, departments: false }));
   }, []);
 
   const fetchCompanies = useCallback(async () => {
     setLoading((s) => ({ ...s, companies: true }));
     setError((s) => ({ ...s, companies: null }));
-    const { data, error: e } = await supabase
-      .from('companies')
-      .select('*')
-      .order('short_name', { ascending: true });
-    if (e) setError((s) => ({ ...s, companies: e.message }));
-    else setCompanies((data as Company[]) ?? []);
+    try {
+      const { data } = await apiClient.get('/master-data/companies');
+      setCompanies((data as Company[]) ?? []);
+      } catch (e: unknown) {
+        setError((s) => ({ ...s, companies: getErrorMessage(e, 'Failed to load companies') }));
+    }
     setLoading((s) => ({ ...s, companies: false }));
   }, []);
 
   const fetchSections = useCallback(async () => {
     setLoading((s) => ({ ...s, sections: true }));
     setError((s) => ({ ...s, sections: null }));
-    const { data, error: e } = await supabase
-      .from('sections')
-      .select('*')
-      .order('name_uz', { ascending: true });
-    if (e) setError((s) => ({ ...s, sections: e.message }));
-    else setSections((data as Section[]) ?? []);
+    try {
+      const { data } = await apiClient.get('/master-data/sections');
+      setSections((data as Section[]) ?? []);
+      } catch (e: unknown) {
+        setError((s) => ({ ...s, sections: getErrorMessage(e, 'Failed to load sections') }));
+    }
     setLoading((s) => ({ ...s, sections: false }));
   }, []);
 
   const fetchVehicles = useCallback(async () => {
     setLoading((s) => ({ ...s, vehicles: true }));
     setError((s) => ({ ...s, vehicles: null }));
-    const { data, error: e } = await supabase
-      .from('vehicles')
-      .select('*')
-      .order('code', { ascending: true });
-    if (e) setError((s) => ({ ...s, vehicles: e.message }));
-    else setVehicles((data as Vehicle[]) ?? []);
+    try {
+      const { data } = await apiClient.get('/master-data/vehicles');
+      setVehicles((data as Vehicle[]) ?? []);
+      } catch (e: unknown) {
+        setError((s) => ({ ...s, vehicles: getErrorMessage(e, 'Failed to load vehicles') }));
+    }
     setLoading((s) => ({ ...s, vehicles: false }));
   }, []);
 
   const fetchFuelTypes = useCallback(async () => {
     setLoading((s) => ({ ...s, fuel_types: true }));
     setError((s) => ({ ...s, fuel_types: null }));
-    const { data, error: e } = await supabase
-      .from('fuel_types')
-      .select('*')
-      .order('code', { ascending: true });
-    if (e) setError((s) => ({ ...s, fuel_types: e.message }));
-    else setFuelTypes((data as FuelType[]) ?? []);
+    try {
+      const { data } = await apiClient.get('/master-data/fuel-types');
+      setFuelTypes((data as FuelType[]) ?? []);
+      } catch (e: unknown) {
+        setError((s) => ({ ...s, fuel_types: getErrorMessage(e, 'Failed to load fuel types') }));
+    }
     setLoading((s) => ({ ...s, fuel_types: false }));
   }, []);
 
   const fetchMatrix = useCallback(async () => {
     setLoading((s) => ({ ...s, fuel_matrix: true }));
     setError((s) => ({ ...s, fuel_matrix: null }));
-    const { data, error: e } = await supabase
-      .from('department_fuel_matrix')
-      .select('*')
-      .order('department_id', { ascending: true });
-    if (e) setError((s) => ({ ...s, fuel_matrix: e.message }));
-    else setMatrix((data as DepartmentFuelMatrix[]) ?? []);
+    try {
+      const { data } = await apiClient.get('/fuel-matrix');
+      setMatrix(
+        ((data as Array<DepartmentFuelMatrix & { is_active?: boolean }>) ?? []).map((row) => ({
+          ...row,
+          enabled: row.is_active ?? row.enabled ?? false,
+        })),
+      );
+      } catch (e: unknown) {
+        setError((s) => ({ ...s, fuel_matrix: getErrorMessage(e, 'Failed to load fuel matrix') }));
+    }
     setLoading((s) => ({ ...s, fuel_matrix: false }));
   }, []);
 
@@ -467,60 +473,57 @@ export function MasterDataPage() {
           short_name: companyForm.short_name.trim(),
           full_name: companyForm.full_name.trim(),
         };
-        const op = editingId
-          ? supabase.from('companies').update(payload).eq('id', editingId)
-          : supabase.from('companies').insert(payload);
-        const { error: err } = await op;
-        if (err) throw err;
+        if (editingId) {
+          await apiClient.put(`/master-data/companies/${editingId}`, payload);
+        } else {
+          await apiClient.post('/master-data/companies', payload);
+        }
       } else if (activeTab === 'departments') {
         const payload = {
           code: deptForm.code.trim(),
           name_uz: deptForm.name_uz.trim(),
-          name: deptForm.name_uz.trim(),
           is_total: deptForm.is_total,
           company_id: deptForm.company_id || null,
         };
-        const op = editingId
-          ? supabase.from('departments').update(payload).eq('id', editingId)
-          : supabase.from('departments').insert(payload);
-        const { error: err } = await op;
-        if (err) throw err;
+        if (editingId) {
+          await apiClient.put(`/master-data/departments/${editingId}`, payload);
+        } else {
+          await apiClient.post('/master-data/departments', payload);
+        }
       } else if (activeTab === 'sections') {
         const payload = {
           department_id: sectionForm.department_id,
           name_uz: sectionForm.name_uz.trim(),
           name: sectionForm.name_uz.trim(),
         };
-        const op = editingId
-          ? supabase.from('sections').update(payload).eq('id', editingId)
-          : supabase.from('sections').insert(payload);
-        const { error: err } = await op;
-        if (err) throw err;
+        if (editingId) {
+          await apiClient.put(`/master-data/sections/${editingId}`, payload);
+        } else {
+          await apiClient.post('/master-data/sections', payload);
+        }
       } else if (activeTab === 'vehicles') {
         const payload = {
           code: vehicleForm.code.trim(),
           name_uz: vehicleForm.name_uz.trim(),
-          name: vehicleForm.name_uz.trim(),
           department_id: vehicleForm.department_id,
           fuel_type_id: vehicleForm.fuel_type_id,
         };
-        const op = editingId
-          ? supabase.from('vehicles').update(payload).eq('id', editingId)
-          : supabase.from('vehicles').insert(payload);
-        const { error: err } = await op;
-        if (err) throw err;
+        if (editingId) {
+          await apiClient.put(`/master-data/vehicles/${editingId}`, payload);
+        } else {
+          await apiClient.post('/master-data/vehicles', payload);
+        }
       } else if (activeTab === 'fuel_types') {
         const payload = {
           code: fuelTypeForm.code.trim(),
           name_uz: fuelTypeForm.name_uz.trim(),
-          name: fuelTypeForm.name_uz.trim(),
           unit: fuelTypeForm.unit,
         };
-        const op = editingId
-          ? supabase.from('fuel_types').update(payload).eq('id', editingId)
-          : supabase.from('fuel_types').insert(payload);
-        const { error: err } = await op;
-        if (err) throw err;
+        if (editingId) {
+          await apiClient.put(`/master-data/fuel-types/${editingId}`, payload);
+        } else {
+          await apiClient.post('/master-data/fuel-types', payload);
+        }
       }
 
       toast.success(t('saved'));
@@ -540,11 +543,15 @@ export function MasterDataPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const { error: err } = await supabase
-        .from(activeTab)
-        .delete()
-        .eq('id', deleteTarget.id);
-      if (err) throw err;
+      const pathMap: Record<TabKey, string> = {
+        companies: '/master-data/companies',
+        departments: '/master-data/departments',
+        sections: '/master-data/sections',
+        vehicles: '/master-data/vehicles',
+        fuel_types: '/master-data/fuel-types',
+        fuel_matrix: '/fuel-matrix',
+      };
+      await apiClient.delete(`${pathMap[activeTab]}/${deleteTarget.id}`);
       toast.success(t('delete'));
       setDeleteTarget(null);
       refreshActive();
@@ -580,21 +587,27 @@ export function MasterDataPage() {
   const toggleMatrixCell = useCallback(
     async (deptId: string, fuelId: string, currentEnabled: boolean) => {
       const existing = matrix.find((m) => m.department_id === deptId && m.fuel_type_id === fuelId);
-      if (!existing) return;
       const cellKey = `${deptId}-${fuelId}`;
       setMatrixSaving((s) => ({ ...s, [cellKey]: true }));
-      const { error: err } = await supabase
-        .from('department_fuel_matrix')
-        .update({ enabled: !currentEnabled })
-        .eq('id', existing.id);
-      if (err) {
-        toast.error(`${t('error')}: ${err.message}`);
-      } else {
+      try {
+        await apiClient.post('/fuel-matrix', {
+          department_id: deptId,
+          fuel_type_id: fuelId,
+          is_active: !currentEnabled,
+        });
         setMatrix((prev) =>
           prev.map((m) =>
-            m.id === existing.id ? { ...m, enabled: !currentEnabled } : m,
+            m.department_id === deptId && m.fuel_type_id === fuelId
+              ? { ...m, enabled: !currentEnabled, is_active: !currentEnabled }
+              : m,
           ),
         );
+        if (!existing) {
+            const nextRow = { ...(matrix.find((m) => m.department_id === deptId && m.fuel_type_id === fuelId) ?? {}), department_id: deptId, fuel_type_id: fuelId, enabled: !currentEnabled, is_active: !currentEnabled } as DepartmentFuelMatrix;
+          setMatrix((prev) => (prev.some((m) => m.department_id === deptId && m.fuel_type_id === fuelId) ? prev : [...prev, nextRow]));
+        }
+        } catch (err: unknown) {
+          toast.error(`${t('error')}: ${getErrorMessage(err, t('error'))}`);
       }
       setMatrixSaving((s) => {
         const next = { ...s };

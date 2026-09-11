@@ -1,4 +1,4 @@
-import type { DailyEntry, FuelType, MonthlyLimit } from './supabase';
+import type { DailyEntry, FuelType, MonthlyLimit } from '../types';
 
 export interface FuelTotalRow {
   fuelTypeId: string;

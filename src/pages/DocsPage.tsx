@@ -56,7 +56,7 @@ const devArticles: Article[] = [
   {
     id: 'arch',
     title: 'Arxitektura',
-    body: "Frontend: React + Vite + Tailwind CSS. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: Supabase (PostgreSQL) + RLS. Auth: Supabase Auth.",
+    body: "Frontend: React + Vite + Tailwind CSS. Backend: FastAPI (Python) + SQLAlchemy. Ma'lumotlar bazasi: local PostgreSQL. Auth: local FastAPI JWT.",
   },
   {
     id: 'schema',

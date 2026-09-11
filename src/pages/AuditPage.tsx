@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, Fragment } from 'react';
-import { supabase, type AuditLog, type Profile, type Department, type Section, type Vehicle, type FuelType } from '../lib/supabase';
+import apiClient from '../lib/client';
+import { type AuditLog, type Profile, type Department, type Section, type Vehicle, type FuelType } from '../types';
 import { useI18n } from '../lib/i18n';
 import { ChevronDown, ChevronRight, ArrowUpDown, RotateCcw } from 'lucide-react';
 
@@ -44,26 +45,25 @@ export function AuditPage() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [a, p, d, s, v, f, r] = await Promise.all([
-        supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(2000),
-        supabase.from('profiles').select('id,full_name,email,department_id'),
-        supabase.from('departments').select('id,name_uz'),
-        supabase.from('sections').select('id,name_uz'),
-        supabase.from('vehicles').select('id,code,name_uz'),
-        supabase.from('fuel_types').select('id,code,name_uz'),
-        supabase.from('user_roles').select('user_id,role'),
+      const [a, p, d, s, v, f] = await Promise.all([
+        apiClient.get('/audit/audit-log', { params: { limit: 2000 } }),
+        apiClient.get('/users'),
+        apiClient.get('/master-data/departments'),
+        apiClient.get('/master-data/sections'),
+        apiClient.get('/master-data/vehicles'),
+        apiClient.get('/master-data/fuel-types'),
       ]);
       setRows((a.data ?? []) as AuditLog[]);
       const toMap = <T extends { id: string }>(arr: T[] | null) =>
         Object.fromEntries((arr ?? []).map((x) => [x.id, x])) as Record<string, T>;
-      setProfiles(toMap((p.data ?? []) as Profile[]));
+      setProfiles(toMap((p.data ?? []) as Array<Profile & { roles?: string[] }>));
       setDepts(toMap((d.data ?? []) as Department[]));
       setSecs(toMap((s.data ?? []) as Section[]));
       setVehs(toMap((v.data ?? []) as Vehicle[]));
       setFuels(toMap((f.data ?? []) as FuelType[]));
       const rmap: Record<string, string[]> = {};
-      ((r.data ?? []) as { user_id: string; role: string }[]).forEach((x) => {
-        rmap[x.user_id] = [...(rmap[x.user_id] ?? []), x.role];
+      ((p.data ?? []) as Array<Profile & { roles?: string[] }>).forEach((profile) => {
+        rmap[profile.id] = Array.isArray(profile.roles) ? profile.roles : [];
       });
       setRolesMap(rmap);
       setLoading(false);

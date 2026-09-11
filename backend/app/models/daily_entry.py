@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Date, Numeric, DateTime, ForeignKey, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -21,6 +22,13 @@ class DailyEntry(Base):
     transfer_out = Column(Numeric(14, 2), nullable=False, default=0)
     consumption = Column(Numeric(14, 2), nullable=False, default=0)
     closing_balance = Column(Numeric(14, 2), nullable=False, default=0)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # Reference data is eagerly loaded so the API response carries the real
+    # texnika / sex / bo'lim / yoqilg'i turi rows instead of bare foreign keys.
+    vehicle = relationship("Vehicle", lazy="selectin")
+    department = relationship("Department", lazy="selectin")
+    section = relationship("Section", lazy="selectin")
+    fuel_type = relationship("FuelType", lazy="selectin")

@@ -9,7 +9,7 @@ import { MasterDataPage } from './pages/MasterDataPage';
 import { UsersPage } from './pages/UsersPage';
 import { AuditPage } from './pages/AuditPage';
 import { DocsPage } from './pages/DocsPage';
-import type { AppRole } from './lib/supabase';
+import type { AppRole } from './types';
 
 export type ViewKey =
   | 'dashboard'
