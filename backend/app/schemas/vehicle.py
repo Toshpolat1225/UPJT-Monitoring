@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, UUID4
+from pydantic import BaseModel, ConfigDict, Field, UUID4
 
 
 class VehicleBase(BaseModel):
@@ -8,6 +8,7 @@ class VehicleBase(BaseModel):
     name_uz: str
     department_id: UUID4
     fuel_type_id: UUID4
+    allowed_fuel_type_ids: list[UUID4] = Field(default_factory=list)
 
 
 class VehicleCreate(VehicleBase):
@@ -19,6 +20,7 @@ class VehicleUpdate(BaseModel):
     name_uz: str | None = None
     department_id: UUID4 | None = None
     fuel_type_id: UUID4 | None = None
+    allowed_fuel_type_ids: list[UUID4] | None = None
 
 
 class VehicleRead(VehicleBase):

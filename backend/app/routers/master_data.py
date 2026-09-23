@@ -159,6 +159,10 @@ def create_vehicle(
         department_id=vehicle.department_id,
         fuel_type_id=vehicle.fuel_type_id,
     )
+    allowed_ids = vehicle.allowed_fuel_type_ids or [vehicle.fuel_type_id]
+    new_vehicle.allowed_fuel_types = db.query(FuelType).filter(FuelType.id.in_(allowed_ids)).all()
+    if len(new_vehicle.allowed_fuel_types) != len(set(allowed_ids)):
+        raise HTTPException(status_code=422, detail="Unknown fuel type in vehicle permissions")
     db.add(new_vehicle)
     db.commit()
     db.refresh(new_vehicle)
@@ -177,7 +181,15 @@ def update_vehicle(
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
     for field, value in updates.model_dump(exclude_unset=True).items():
+        if field == "allowed_fuel_type_ids":
+            continue
         setattr(vehicle, field, value)
+
+    if updates.allowed_fuel_type_ids is not None:
+        allowed_ids = updates.allowed_fuel_type_ids or [vehicle.fuel_type_id]
+        vehicle.allowed_fuel_types = db.query(FuelType).filter(FuelType.id.in_(allowed_ids)).all()
+        if len(vehicle.allowed_fuel_types) != len(set(allowed_ids)):
+            raise HTTPException(status_code=422, detail="Unknown fuel type in vehicle permissions")
 
     db.commit()
     db.refresh(vehicle)

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Date, Numeric, DateTime, ForeignKey, func, UniqueConstraint
+import uuid
+from sqlalchemy import Column, Date, Numeric, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -6,11 +7,8 @@ from app.core.database import Base
 
 class DailyEntry(Base):
     __tablename__ = "daily_entries"
-    __table_args__ = (
-        UniqueConstraint("entry_date", "vehicle_id", "fuel_type_id", name="uq_daily_entries_date_vehicle_fuel"),
-    )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid())
     entry_date = Column(Date, nullable=False)
     department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id", ondelete="RESTRICT"), nullable=False)
     section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id", ondelete="SET NULL"), nullable=True)

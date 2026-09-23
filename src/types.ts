@@ -61,6 +61,7 @@ export interface Vehicle {
   name_uz: string;
   department_id: string;
   fuel_type_id: string;
+  allowed_fuel_type_ids?: string[];
   created_at: string;
 }
 

@@ -58,6 +58,33 @@ services:
     networks:
       - fuel_internal
 
+  backup-service:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.backup
+    container_name: upjt_backup_prod
+    user: "1000:1000"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./backups:/backups
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - fuel_internal
+
   nginx:
     image: fuel-nginx-local
     container_name: upjt_nginx_prod

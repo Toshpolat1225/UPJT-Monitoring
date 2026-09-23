@@ -8,6 +8,7 @@ from app.models.permission_matrix import PermissionMatrix
 from app.models.department_fuel_matrix import DepartmentFuelMatrix
 from app.models.monthly_limit import MonthlyLimit
 from app.models.daily_entry import DailyEntry
+from app.models.vehicle_fuel_type import vehicle_fuel_types
 from app.models.audit_log import AuditLog
 from app.models.role_permission import RolePermission
 from app.models.enums import AppRole, FuelUnit

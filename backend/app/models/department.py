@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import Column, Text, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
@@ -7,7 +8,7 @@ from app.core.database import Base
 class Department(Base):
     __tablename__ = "departments"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid())
     code = Column(Text, nullable=False, unique=True)
     name_uz = Column(Text, nullable=False, default="")
     is_total = Column(Boolean, nullable=False, default=False)

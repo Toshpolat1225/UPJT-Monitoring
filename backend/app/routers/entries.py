@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import date
@@ -13,7 +14,7 @@ from app.models.section import Section
 from app.models.fuel_type import FuelType
 from app.schemas.schemas import DailyEntryCreate, DailyEntryUpdate, DailyEntryResponse
 from app.services.aggregation import compute_closing_balance
-from app.services.entry_service import recalculate_following_balances, resolve_opening_balance
+from app.services.entry_service import lock_chain, lock_chains, recalculate_following_balances, resolve_opening_balance
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -35,6 +36,18 @@ def _validate_balance(opening_balance, received_azs, transfer_in, transfer_out, 
     calculated = Decimal(str(opening_balance)) + Decimal(str(received_azs)) + Decimal(str(transfer_in)) - Decimal(str(transfer_out)) - Decimal(str(consumption))
     if calculated < 0 or Decimal(str(closing_balance)) < 0:
         raise HTTPException(status_code=422, detail="Operation would create a negative balance")
+
+
+def _validate_vehicle_fuel(db: Session, vehicle_id: str, fuel_type_id: str) -> Vehicle:
+    vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=422, detail="Vehicle not found")
+    allowed_ids = {str(fuel.id) for fuel in (vehicle.allowed_fuel_types or [])}
+    if not allowed_ids:
+        allowed_ids = {str(vehicle.fuel_type_id)}
+    if str(fuel_type_id) not in allowed_ids:
+        raise HTTPException(status_code=422, detail="Fuel type is not allowed for this vehicle")
+    return vehicle
 
 
 @router.get("/", response_model=List[DailyEntryResponse])
@@ -83,13 +96,8 @@ def create_entry(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(require_role("admin", "gsm", "operator", "master")),
 ):
-    existing = db.query(DailyEntry).filter(
-        DailyEntry.entry_date == entry.entry_date,
-        DailyEntry.vehicle_id == entry.vehicle_id,
-        DailyEntry.fuel_type_id == entry.fuel_type_id,
-    ).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Entry already exists for this date/vehicle/fuel")
+    _validate_vehicle_fuel(db, entry.vehicle_id, entry.fuel_type_id)
+    lock_chain(db, entry.vehicle_id, entry.fuel_type_id)
 
     opening = resolve_opening_balance(
         db, entry.vehicle_id, entry.fuel_type_id, entry.entry_date, entry.opening_balance
@@ -116,10 +124,13 @@ def create_entry(
     )
     db.add(new_entry)
     db.flush()
-    recalculate_following_balances(db, entry.vehicle_id, entry.fuel_type_id, entry.entry_date)
-    db.commit()
-    db.refresh(new_entry)
-    return new_entry
+    try:
+        recalculate_following_balances(db, entry.vehicle_id, entry.fuel_type_id, entry.entry_date)
+        db.commit()
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _with_entry_references(db.query(DailyEntry)).filter(DailyEntry.id == new_entry.id).first()
 
 
 @router.put("/{entry_id}", response_model=DailyEntryResponse)
@@ -132,6 +143,19 @@ def update_entry(
     entry = _with_entry_references(db.query(DailyEntry)).filter(DailyEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
+    old_chain = (entry.vehicle_id, entry.fuel_type_id)
+    old_entry_date = entry.entry_date
+    new_vehicle_id = updates.vehicle_id or entry.vehicle_id
+    new_fuel_type_id = updates.fuel_type_id or entry.fuel_type_id
+    lock_chains(db, [old_chain, (new_vehicle_id, new_fuel_type_id)])
+    entry = db.query(DailyEntry).filter(DailyEntry.id == entry_id).with_for_update().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    old_chain = (entry.vehicle_id, entry.fuel_type_id)
+    new_vehicle_id = updates.vehicle_id or entry.vehicle_id
+    new_fuel_type_id = updates.fuel_type_id or entry.fuel_type_id
+    new_entry_date = updates.entry_date or entry.entry_date
+    _validate_vehicle_fuel(db, str(new_vehicle_id), str(new_fuel_type_id))
     values = {
         "received_azs": entry.received_azs,
         "transfer_in": entry.transfer_in,
@@ -139,20 +163,32 @@ def update_entry(
         "consumption": entry.consumption,
     }
     values.update(updates.model_dump(exclude_unset=True, exclude={"opening_balance", "closing_balance"}))
-    opening = resolve_opening_balance(
-        db, entry.vehicle_id, entry.fuel_type_id, entry.entry_date, entry.opening_balance, entry.id
-    )
-    closing = compute_closing_balance(opening, **values)
-    _validate_balance(opening, closing_balance=closing, **values)
+    values.pop("entry_date", None)
+    values.pop("department_id", None)
+    values.pop("section_id", None)
+    values.pop("vehicle_id", None)
+    values.pop("fuel_type_id", None)
     for field, value in values.items():
         setattr(entry, field, value)
-    entry.opening_balance = opening
-    entry.closing_balance = closing
+    entry.entry_date = new_entry_date
+    entry.department_id = updates.department_id or entry.department_id
+    entry.section_id = updates.section_id if "section_id" in updates.model_fields_set else entry.section_id
+    entry.vehicle_id = new_vehicle_id
+    entry.fuel_type_id = new_fuel_type_id
+    entry.updated_at = func.now()
     db.flush()
-    recalculate_following_balances(db, entry.vehicle_id, entry.fuel_type_id, entry.entry_date)
-    db.commit()
-    db.refresh(entry)
-    return entry
+    try:
+        if old_chain == (entry.vehicle_id, entry.fuel_type_id):
+            from_date = min(old_entry_date, entry.entry_date)
+            recalculate_following_balances(db, entry.vehicle_id, entry.fuel_type_id, from_date)
+        else:
+            recalculate_following_balances(db, old_chain[0], old_chain[1], old_entry_date)
+            recalculate_following_balances(db, entry.vehicle_id, entry.fuel_type_id, entry.entry_date)
+        db.commit()
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _with_entry_references(db.query(DailyEntry)).filter(DailyEntry.id == entry.id).first()
 
 
 @router.delete("/{entry_id}")
@@ -165,8 +201,17 @@ def delete_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     vehicle_id, fuel_type_id, entry_date = entry.vehicle_id, entry.fuel_type_id, entry.entry_date
+    lock_chain(db, vehicle_id, fuel_type_id)
+    entry = db.query(DailyEntry).filter(DailyEntry.id == entry_id).with_for_update().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    vehicle_id, fuel_type_id, entry_date = entry.vehicle_id, entry.fuel_type_id, entry.entry_date
     db.delete(entry)
     db.flush()
-    recalculate_following_balances(db, vehicle_id, fuel_type_id, entry_date)
-    db.commit()
+    try:
+        recalculate_following_balances(db, vehicle_id, fuel_type_id, entry_date)
+        db.commit()
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return {"detail": "Entry deleted"}

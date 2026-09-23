@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, FileDown, Printer, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, FileDown, Pencil, Plus, Printer, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import apiClient from '../lib/client';
@@ -23,7 +23,7 @@ import { getErrorMessage } from '../lib/errorMessage';
 interface EntryRow extends DailyEntry {
   department?: (Pick<Department, 'name_uz' | 'code'> & { company?: { short_name: string } | null }) | null;
   section?: Pick<Section, 'name_uz' | 'name_uz'> | null;
-  vehicle?: Pick<Vehicle, 'code' | 'name_uz' | 'name_uz'> | null;
+  vehicle?: Pick<Vehicle, 'code' | 'name_uz' | 'name_uz' | 'allowed_fuel_type_ids'> | null;
   fuel_type?: Pick<FuelType, 'name_uz' | 'name_uz' | 'unit'> | null;
 }
 
@@ -39,6 +39,7 @@ interface FormState {
   transfer_in: string;
   transfer_out: string;
   consumption: string;
+  closing_balance: string;
 }
 
 type SortKey = keyof DailyEntry | 'company' | 'vehicle_name' | 'department_name' | 'section_name' | 'fuel_name';
@@ -73,6 +74,17 @@ const exportNumber = (n: number | null | undefined): number | string =>
 const fmtPct = (n: number): string =>
   Number.isFinite(n) ? `${n.toLocaleString('uz-UZ', { maximumFractionDigits: 2 })}%` : '—';
 
+const normalizeFuelGroupName = (value?: string | null): string =>
+  (value ?? '').toLocaleLowerCase('uz-UZ').replace(/[^a-z0-9]+/g, ' ').trim();
+
+const matchFuelSummaryGroup = (fuelName: string, fuelCode: string, groupName: 'STG' | 'Benzin' | 'Dizel') => {
+  const normalized = normalizeFuelGroupName(`${fuelName} ${fuelCode}`);
+  if (groupName === 'STG') return normalized.includes('stg');
+  if (groupName === 'Benzin') return normalized.includes('benzin');
+  if (groupName === 'Dizel') return normalized.includes('dizel');
+  return false;
+};
+
 const emptyForm = (): FormState => ({
   entry_date: todayStr(),
   department_id: '',
@@ -84,14 +96,176 @@ const emptyForm = (): FormState => ({
   transfer_in: '',
   transfer_out: '',
   consumption: '',
+  closing_balance: '',
 });
 
-const calcClosing = (f: FormState): number =>
-  num(f.opening_balance) +
-  num(f.received_azs) +
-  num(f.transfer_in) -
-  num(f.transfer_out) -
-  num(f.consumption);
+interface VehiclePickerProps {
+  vehicles: Vehicle[];
+  value: string;
+  onChange: (vehicleId: string) => void;
+  getName: (vehicle: Vehicle) => string;
+  disabled?: boolean;
+  placeholder: string;
+}
+
+function VehiclePicker({ vehicles, value, onChange, getName, disabled = false, placeholder }: VehiclePickerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === value);
+  const selectedLabel = selectedVehicle ? `${selectedVehicle.code} — ${getName(selectedVehicle)}` : '';
+  const normalizedQuery = query.trim().toLocaleLowerCase('uz-UZ');
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    if (!normalizedQuery) return true;
+    return [vehicle.id, vehicle.code, vehicle.name, vehicle.name_uz]
+      .some((field) => String(field ?? '').toLocaleLowerCase('uz-UZ').includes(normalizedQuery));
+  });
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    if (open) searchInputRef.current?.focus();
+  }, [open]);
+
+  const selectVehicle = (vehicle: Vehicle) => {
+    onChange(vehicle.id);
+    setQuery('');
+    setOpen(false);
+    setHighlightedIndex(0);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setOpen(false);
+      setQuery('');
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setOpen(true);
+      setHighlightedIndex((index) => Math.min(index + 1, Math.max(filteredVehicles.length - 1, 0)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'Enter' && open) {
+      event.preventDefault();
+      if (filteredVehicles[highlightedIndex]) {
+        selectVehicle(filteredVehicles[highlightedIndex]);
+      }
+    }
+  };
+
+  const openPicker = () => {
+    if (disabled) return;
+    setQuery('');
+    setHighlightedIndex(0);
+    setOpen(true);
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      {!open ? (
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={disabled}
+          className="flex w-full items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-left outline-none transition focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+          aria-haspopup="listbox"
+          aria-expanded="false"
+        >
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className={`min-w-0 flex-1 truncate ${selectedLabel ? 'text-foreground' : 'text-muted-foreground'}`}>
+            {selectedLabel || placeholder}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 rounded-lg border border-input bg-background p-0 focus-within:ring-2 focus-within:ring-ring">
+          <Search className="ml-3 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value.toLocaleLowerCase('uz-UZ'));
+              setHighlightedIndex(0);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            required
+            aria-label={placeholder}
+            aria-haspopup="listbox"
+            aria-expanded="true"
+            aria-controls="vehicle-picker-options"
+            className="min-w-0 flex-1 bg-transparent px-1 py-2 outline-none placeholder:text-muted-foreground"
+          />
+          {query && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setQuery('');
+                setHighlightedIndex(0);
+                searchInputRef.current?.focus();
+              }}
+              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Qidiruvni tozalash"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setOpen(false);
+              setQuery('');
+            }}
+            className="mr-2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Qidiruvni yopish"
+          >
+            <ChevronDown className="h-4 w-4 rotate-180" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {open && !disabled && (
+        <div
+          id="vehicle-picker-options"
+          role="listbox"
+          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+        >
+          {filteredVehicles.length > 0 ? filteredVehicles.map((vehicle, index) => (
+            <button
+              key={vehicle.id}
+              type="button"
+              role="option"
+              aria-selected={vehicle.id === value}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectVehicle(vehicle)}
+              className={`flex w-full items-start rounded-md px-3 py-2 text-left text-sm transition ${
+                index === highlightedIndex ? 'bg-muted' : 'hover:bg-muted/60'
+              } ${vehicle.id === value ? 'font-semibold text-primary' : 'text-foreground'}`}
+            >
+              <span>{vehicle.code} — {getName(vehicle)}</span>
+              <span className="ml-auto pl-3 text-xs text-muted-foreground">{vehicle.id}</span>
+            </button>
+          )) : (
+            <div className="px-3 py-2 text-sm text-muted-foreground">Texnika topilmadi</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ============================================================
 // Component
@@ -111,9 +285,11 @@ export function EntriesPage() {
   const [filterDateTo, setFilterDateTo] = useState<string>(todayStr());
   const [filterDept, setFilterDept] = useState<string>('');
   const [filterVehicle, setFilterVehicle] = useState<string>('');
+  const [filterCompany, setFilterCompany] = useState<string>('');
   const [filterSection, setFilterSection] = useState<string>('');
   const [filterFuel, setFilterFuel] = useState<string>('');
   const [search, setSearch] = useState<string>('');
+  const [columnFilters, setColumnFilters] = useState<Partial<Record<SortKey, string>>>({});
   const [sortKey, setSortKey] = useState<SortKey>('entry_date');
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -204,17 +380,31 @@ export function EntriesPage() {
   const formVehicles = useMemo(
     () => vehicles.filter((v) =>
       v.department_id === form.department_id &&
-      enabledFuels.has(`${v.department_id}|${v.fuel_type_id}`),
+      (v.allowed_fuel_type_ids ?? [v.fuel_type_id]).some((fuelId) => enabledFuels.has(`${v.department_id}|${fuelId}`)),
     ),
     [vehicles, form.department_id, enabledFuels],
   );
+
+  const pickerVehicles = useMemo(() => {
+    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === form.vehicle_id);
+    if (selectedVehicle && !formVehicles.some((vehicle) => vehicle.id === selectedVehicle.id)) {
+      return [selectedVehicle, ...formVehicles];
+    }
+    return formVehicles;
+  }, [vehicles, form.vehicle_id, formVehicles]);
 
   const selectedFuelType = useMemo(
     () => fuelTypes.find((f) => f.id === form.fuel_type_id) ?? null,
     [fuelTypes, form.fuel_type_id],
   );
 
-  const closingBalance = useMemo(() => calcClosing(form), [form]);
+  const formAllowedFuelTypes = useMemo(() => {
+    const vehicle = vehicles.find((item) => item.id === form.vehicle_id);
+    const allowedIds = vehicle?.allowed_fuel_type_ids ?? (vehicle?.fuel_type_id ? [vehicle.fuel_type_id] : []);
+    return fuelTypes.filter((fuel) =>
+      allowedIds.includes(fuel.id) && enabledFuels.has(`${form.department_id}|${fuel.id}`),
+    );
+  }, [vehicles, fuelTypes, enabledFuels, form.vehicle_id, form.department_id]);
 
   // The server is authoritative for the balance chain. Fetch the derived
   // opening value only for display; it is never editable or trusted on save.
@@ -255,6 +445,7 @@ export function EntriesPage() {
       transfer_in: String(row.transfer_in ?? ''),
       transfer_out: String(row.transfer_out ?? ''),
       consumption: String(row.consumption ?? ''),
+      closing_balance: String(row.closing_balance ?? ''),
     });
     // If the existing entry references a disabled fuel, keep it viewable but
     // mark it so the dropdown shows it as a locked selection.
@@ -286,12 +477,13 @@ export function EntriesPage() {
   // When vehicle changes, auto-fill fuel type from vehicle (only if enabled)
   const handleVehicleChange = (vehicleId: string) => {
     const v = vehicles.find((x) => x.id === vehicleId);
-    const fuelId = v?.fuel_type_id ?? '';
-    const isAllowed = fuelId && enabledFuels.has(`${v?.department_id}|${fuelId}`);
+    const allowedFuelIds = (v?.allowed_fuel_type_ids ?? [v?.fuel_type_id]).filter(
+      (fuelId): fuelId is string => Boolean(fuelId) && enabledFuels.has(`${v?.department_id}|${fuelId}`),
+    );
     setForm((prev) => ({
       ...prev,
       vehicle_id: vehicleId,
-      fuel_type_id: isAllowed ? fuelId : '',
+      fuel_type_id: allowedFuelIds.length === 1 ? allowedFuelIds[0] : '',
     }));
   };
 
@@ -316,21 +508,17 @@ export function EntriesPage() {
 
       // This is display-only. The API resolves opening and closing balances
       // from the persisted chain, so client state cannot alter them.
-      const opening = num(form.opening_balance);
-      const closing = calcClosing({ ...form, opening_balance: String(opening) });
-
       const payload = {
         entry_date: form.entry_date,
         department_id: form.department_id,
         section_id: form.section_id || null,
         vehicle_id: form.vehicle_id,
         fuel_type_id: form.fuel_type_id,
-        opening_balance: opening,
+        // Opening and closing are server-authoritative chain values.
         received_azs: num(form.received_azs),
         transfer_in: num(form.transfer_in),
         transfer_out: num(form.transfer_out),
         consumption: num(form.consumption),
-        closing_balance: closing,
       };
 
       if (isEdit) {
@@ -343,7 +531,7 @@ export function EntriesPage() {
       closeModal();
       await loadEntries();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, 'Failed to save entry');
       toast.error(`${t('error')}: ${msg}`);
     } finally {
       setSaving(false);
@@ -365,7 +553,7 @@ export function EntriesPage() {
       toast.success(t('delete'));
       await loadEntries();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, 'Failed to delete entry');
       toast.error(`${t('error')}: ${msg}`);
     } finally {
       setDeletingId(null);
@@ -377,6 +565,7 @@ export function EntriesPage() {
   // --------------------------------------------------------
   const displayedEntries = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
+    const numericKeys: SortKey[] = ['opening_balance', 'received_azs', 'transfer_in', 'transfer_out', 'consumption', 'closing_balance'];
     const value = (entry: EntryRow, key: SortKey): string | number => {
       if (key === 'company') return entry.department?.company?.short_name ?? '';
       if (key === 'vehicle_name') return entry.vehicle?.name_uz ?? '';
@@ -385,32 +574,67 @@ export function EntriesPage() {
       if (key === 'fuel_name') return entry.fuel_type?.name_uz ?? '';
       return entry[key] ?? '';
     };
-    return entries.filter((e) =>
-      (!filterSection || e.section_id === filterSection) &&
-      (!filterFuel || e.fuel_type_id === filterFuel) &&
-      (!term || [e.entry_date, e.vehicle?.name_uz, e.vehicle?.code, e.department?.name_uz, e.department?.company?.short_name, e.section?.name_uz, e.fuel_type?.name_uz].some((v) => v?.toLocaleLowerCase().includes(term))),
-    ).sort((a, b) => {
+
+    const matchesColumnFilter = (entry: EntryRow, key: SortKey): boolean => {
+      const filter = columnFilters[key]?.trim().toLocaleLowerCase('uz-UZ');
+      if (!filter) return true;
+      const entryValue = value(entry, key);
+      if (numericKeys.includes(key)) {
+        const numericValue = Number(entryValue);
+        const range = filter.split('..').map(Number);
+        if (range.length === 2 && range.every(Number.isFinite)) {
+          return numericValue >= range[0] && numericValue <= range[1];
+        }
+        const exactValue = Number(filter);
+        return Number.isFinite(exactValue) ? numericValue === exactValue : false;
+      }
+      return String(entryValue).toLocaleLowerCase('uz-UZ').includes(filter);
+    };
+
+    return entries.filter((e) => {
+      const matchesDate = (!filterDateFrom || e.entry_date >= filterDateFrom) && (!filterDateTo || e.entry_date <= filterDateTo);
+      const matchesDepartment = !filterDept || e.department_id === filterDept;
+      const matchesVehicle = !filterVehicle || e.vehicle_id === filterVehicle;
+      const matchesCompany = !filterCompany || (e.department?.company?.short_name ?? '').toLocaleLowerCase('uz-UZ').includes(filterCompany.toLocaleLowerCase('uz-UZ'));
+      const matchesSection = !filterSection || e.section_id === filterSection;
+      const matchesFuel = !filterFuel || e.fuel_type_id === filterFuel;
+      const matchesSearch = !term || [
+        e.entry_date,
+        e.vehicle?.name_uz,
+        e.vehicle?.code,
+        e.department?.name_uz,
+        e.department?.company?.short_name,
+        e.section?.name_uz,
+        e.fuel_type?.name_uz,
+      ].some((v) => v?.toLocaleLowerCase('uz-UZ').includes(term));
+
+      const matchesColumns = (Object.keys(columnFilters) as SortKey[]).every((key) => matchesColumnFilter(e, key));
+
+      return matchesDate && matchesDepartment && matchesVehicle && matchesCompany && matchesSection && matchesFuel && matchesSearch && matchesColumns;
+    }).sort((a, b) => {
       const av = value(a, sortKey); const bv = value(b, sortKey);
-      const result = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv), 'uz');
+      const result = numericKeys.includes(sortKey)
+        ? Number(av) - Number(bv)
+        : String(av).localeCompare(String(bv), 'uz');
       return sortAsc ? result : -result;
     });
-  }, [entries, filterSection, filterFuel, search, sortKey, sortAsc]);
+  }, [entries, filterDateFrom, filterDateTo, filterDept, filterVehicle, filterCompany, filterSection, filterFuel, search, columnFilters, sortKey, sortAsc]);
 
   const numericTotals = useMemo(() => displayedEntries.reduce((total, row) => ({
-    opening_balance: total.opening_balance + (row.opening_balance ?? 0), received_azs: total.received_azs + (row.received_azs ?? 0),
-    transfer_in: total.transfer_in + (row.transfer_in ?? 0), transfer_out: total.transfer_out + (row.transfer_out ?? 0),
-    consumption: total.consumption + (row.consumption ?? 0), closing_balance: total.closing_balance + (row.closing_balance ?? 0),
+    opening_balance: total.opening_balance + (Number(row.opening_balance) || 0), received_azs: total.received_azs + (Number(row.received_azs) || 0),
+    transfer_in: total.transfer_in + (Number(row.transfer_in) || 0), transfer_out: total.transfer_out + (Number(row.transfer_out) || 0),
+    consumption: total.consumption + (Number(row.consumption) || 0), closing_balance: total.closing_balance + (Number(row.closing_balance) || 0),
   }), { opening_balance: 0, received_azs: 0, transfer_in: 0, transfer_out: 0, consumption: 0, closing_balance: 0 }), [displayedEntries]);
   const fuelNumericTotals = useMemo(() => {
     const totals = new Map<string, typeof numericTotals>();
     for (const row of displayedEntries) {
       const current = totals.get(row.fuel_type_id) ?? { opening_balance: 0, received_azs: 0, transfer_in: 0, transfer_out: 0, consumption: 0, closing_balance: 0 };
-      current.opening_balance += row.opening_balance ?? 0;
-      current.received_azs += row.received_azs ?? 0;
-      current.transfer_in += row.transfer_in ?? 0;
-      current.transfer_out += row.transfer_out ?? 0;
-      current.consumption += row.consumption ?? 0;
-      current.closing_balance += row.closing_balance ?? 0;
+      current.opening_balance += Number(row.opening_balance) || 0;
+      current.received_azs += Number(row.received_azs) || 0;
+      current.transfer_in += Number(row.transfer_in) || 0;
+      current.transfer_out += Number(row.transfer_out) || 0;
+      current.consumption += Number(row.consumption) || 0;
+      current.closing_balance += Number(row.closing_balance) || 0;
       totals.set(row.fuel_type_id, current);
     }
     return totals;
@@ -421,12 +645,32 @@ export function EntriesPage() {
   );
   const toggleSort = (key: SortKey) => { if (sortKey === key) setSortAsc((v) => !v); else { setSortKey(key); setSortAsc(true); } };
 
-  const summaryRows = useMemo(() => fuelTotals.perFuel.map((fuel) => ({
-    ...fuel,
-    factPercentage: fuel.limit > 0 ? (fuel.actual / fuel.limit) * 100 : null,
-    deviation: fuel.actual - fuel.limit,
-    deviationPercentage: fuel.limit > 0 ? ((fuel.actual - fuel.limit) / fuel.limit) * 100 : null,
-  })), [fuelTotals]);
+  const summaryRows = useMemo(() => {
+    const groupOrder: Array<'STG' | 'Benzin' | 'Dizel'> = ['STG', 'Benzin', 'Dizel'];
+    const values = fuelTotals.perFuel.reduce<Record<string, { actual: number; limit: number }>>((acc, fuel) => {
+      const fuelCode = fuelTypes.find((type) => type.id === fuel.fuelTypeId)?.code ?? '';
+      const match = groupOrder.find((group) => matchFuelSummaryGroup(fuel.fuelName, fuelCode, group));
+      const key = match ?? fuel.fuelName;
+      const current = acc[key] ?? { actual: 0, limit: 0 };
+      current.actual += fuel.actual;
+      current.limit += fuel.limit;
+      acc[key] = current;
+      return acc;
+    }, {});
+
+    return groupOrder.map((group) => {
+      const total = values[group] ?? { actual: 0, limit: 0 };
+      return {
+        fuelTypeId: group,
+        fuelName: group,
+        actual: total.actual,
+        limit: total.limit,
+        factPercentage: total.limit > 0 ? (total.actual / total.limit) * 100 : null,
+        deviation: total.actual - total.limit,
+        deviationPercentage: total.limit > 0 ? ((total.actual - total.limit) / total.limit) * 100 : null,
+      };
+    });
+  }, [fuelTotals, fuelTypes]);
 
   const entryToExportRow = (e: EntryRow): (string | number)[] => [
     e.entry_date,
@@ -449,12 +693,11 @@ export function EntriesPage() {
   // Excel export (filtered data + the same summary as the screen)
   // --------------------------------------------------------
   const handleExport = () => {
-    if (loading || displayedEntries.length === 0) {
-      toast.error(t('noData'));
+    if (loading) {
+      toast.error(t('loading'));
       return;
     }
 
-    // Header row — matches visible table columns (excluding actions)
     const headers = [
       t('date'),
       'Kompaniya qisqa nomi',
@@ -472,17 +715,13 @@ export function EntriesPage() {
 
     const dataRows = displayedEntries.map(entryToExportRow);
 
-    // Build sheet manually with formulas
     const aoa: (string | number)[][] = [headers, ...dataRows];
 
-    // Summary is calculated from the same filtered and sorted rows as the table.
     aoa.push([]);
-    aoa.push([t('fuelType'), t('total'), 'Limit', 'Fakt', 'Fakt %', 'Og\'ish %']);
+    aoa.push(['Yoqilg\'i turi', 'Jami', 'Limit', 'Fakt %', 'Og\'ish %']);
     for (const ft of summaryRows) {
-      const totals = fuelNumericTotals.get(ft.fuelTypeId);
-      aoa.push([ft.fuelName, totals?.consumption ?? 0, ft.limit, ft.actual, ft.factPercentage ?? '—', ft.deviationPercentage ?? '—']);
+      aoa.push([ft.fuelName, ft.actual, ft.limit, ft.factPercentage ?? '—', ft.deviationPercentage ?? '—']);
     }
-    aoa.push(['Jami', fuelTotals.grand.actual, fuelTotals.grand.limit, fuelTotals.grand.actual, fuelTotals.grand.limit > 0 ? (fuelTotals.grand.actual / fuelTotals.grand.limit) * 100 : '—', fuelTotals.grand.limit > 0 ? ((fuelTotals.grand.actual - fuelTotals.grand.limit) / fuelTotals.grand.limit) * 100 : '—']);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -510,6 +749,17 @@ export function EntriesPage() {
   const inputCls =
     'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring disabled:opacity-60';
   const labelCls = 'mb-1.5 block text-xs font-medium text-muted-foreground';
+  const columnFilterCls = 'w-full min-w-0 rounded border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring';
+  const renderColumnFilter = (key: SortKey, placeholder: string, type: 'text' | 'date' = 'text') => (
+    <input
+      type={type}
+      value={columnFilters[key] ?? ''}
+      onChange={(event) => setColumnFilters((current) => ({ ...current, [key]: event.target.value }))}
+      placeholder={placeholder}
+      aria-label={`${placeholder} filter`}
+      className={columnFilterCls}
+    />
+  );
 
   // --------------------------------------------------------
   // Print
@@ -522,6 +772,7 @@ export function EntriesPage() {
       const dept = departments.find((d) => d.id === filterDept);
       items.push({ label: t('department'), value: dept ? ln(dept) : filterDept });
     }
+    if (filterCompany) items.push({ label: 'Kompaniya qisqa nomi', value: filterCompany });
     if (filterVehicle) {
       const veh = vehicles.find((v) => v.id === filterVehicle);
       items.push({ label: t('vehicle'), value: veh ? `${veh.code} — ${ln(veh)}` : filterVehicle });
@@ -534,8 +785,25 @@ export function EntriesPage() {
       const fuel = fuelTypes.find((f) => f.id === filterFuel);
       items.push({ label: t('fuelType'), value: fuel ? ln(fuel) : filterFuel });
     }
+    const columnFilterLabels: Partial<Record<SortKey, string>> = {
+      entry_date: t('date'),
+      company: 'Kompaniya qisqa nomi',
+      department_name: t('department'),
+      section_name: t('section'),
+      vehicle_name: t('vehicle'),
+      fuel_name: t('fuelType'),
+      opening_balance: t('opening'),
+      received_azs: t('receivedAzs'),
+      transfer_in: t('transferIn'),
+      transfer_out: t('transferOut'),
+      consumption: t('consumption'),
+      closing_balance: t('closing'),
+    };
+    Object.entries(columnFilters).forEach(([key, value]) => {
+      if (value) items.push({ label: `${columnFilterLabels[key as SortKey] ?? key} filter`, value });
+    });
     return items;
-  }, [filterDateFrom, filterDateTo, filterDept, filterVehicle, filterSection, filterFuel, departments, vehicles, sections, fuelTypes, t, ln]);
+  }, [filterDateFrom, filterDateTo, filterDept, filterCompany, filterVehicle, filterSection, filterFuel, columnFilters, departments, vehicles, sections, fuelTypes, t, ln]);
 
   const handlePrint = () => {
     window.print();
@@ -631,6 +899,19 @@ export function EntriesPage() {
           </select>
         </div>
         <div>
+          <label className={labelCls}>Kompaniya qisqa nomi</label>
+          <select
+            value={filterCompany}
+            onChange={(e) => setFilterCompany(e.target.value)}
+            className={inputCls}
+          >
+            <option value="">{t('all')}</option>
+            {[...new Set(entries.map((entry) => entry.department?.company?.short_name).filter(Boolean) as string[])].map((company) => (
+              <option key={company} value={company}>{company}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className={labelCls}>{t('vehicle')}</label>
           <select
             value={filterVehicle}
@@ -651,10 +932,10 @@ export function EntriesPage() {
         <div><label className={labelCls}>{t('fuelType')}</label><select value={filterFuel} onChange={(e) => setFilterFuel(e.target.value)} className={inputCls}><option value="">{t('all')}</option>{fuelTypes.map((x) => <option key={x.id} value={x.id}>{ln(x)}</option>)}</select></div>
         <div><label className={labelCls}>Qidirish</label><input value={search} onChange={(e) => setSearch(e.target.value)} className={inputCls} placeholder="Texnika, kompaniya..." /></div>
       </div>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Yoqilg'i summary">
+      <section className="no-print grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Yoqilg'i summary">
         {summaryRows.map((fuel) => (
           <article key={fuel.fuelTypeId} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <h2 className="text-base font-semibold text-foreground">{fuel.fuelName}</h2>
+            <h2 className="text-base font-semibold text-foreground">Jami {fuel.fuelName}</h2>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <div><dt className="text-muted-foreground">Jami</dt><dd className="font-semibold text-foreground">{fmtNum(fuel.actual)}</dd></div>
               <div><dt className="text-muted-foreground">Limit</dt><dd className="font-semibold text-foreground">{fmtNum(fuel.limit)}</dd></div>
@@ -664,6 +945,21 @@ export function EntriesPage() {
           </article>
         ))}
       </section>
+
+      <div className="print-only hidden rounded-xl border border-gray-300 bg-white p-4">
+        <h2 className="mb-3 text-base font-semibold text-black">Umumiy hisobot</h2>
+        <div className="grid grid-cols-3 gap-3 text-sm text-black">
+          {summaryRows.map((fuel) => (
+            <div key={`${fuel.fuelTypeId}-print`} className="rounded border border-gray-300 p-2">
+              <div className="font-semibold">{fuel.fuelName}</div>
+              <div>Jami: {fmtNum(fuel.actual)}</div>
+              <div>Limit: {fmtNum(fuel.limit)}</div>
+              <div>Fakt %: {fuel.factPercentage == null ? '—' : fmtPct(fuel.factPercentage)}</div>
+              <div>Og'ish %: {fuel.deviationPercentage == null ? '—' : fmtPct(fuel.deviationPercentage)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Table */}
       <div className="print-table-wrapper overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -684,6 +980,21 @@ export function EntriesPage() {
                 <th onClick={() => toggleSort('consumption')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('consumption')}</th>
                 <th onClick={() => toggleSort('closing_balance')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('closing')}</th>
                 <th className="no-print px-3 py-2.5 text-center font-semibold text-foreground">{t('actions')}</th>
+              </tr>
+              <tr className="no-print border-b border-border bg-muted/10">
+                <th className="px-2 py-1.5">{renderColumnFilter('entry_date', 'YYYY-MM-DD', 'date')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('company', 'Filter')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('department_name', 'Filter')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('section_name', 'Filter')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('vehicle_name', 'Filter')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('fuel_name', 'Filter')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('opening_balance', 'Min/max')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('received_azs', 'Min/max')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('transfer_in', 'Min/max')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('transfer_out', 'Min/max')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('consumption', 'Min/max')}</th>
+                <th className="px-2 py-1.5">{renderColumnFilter('closing_balance', 'Min/max')}</th>
+                <th className="no-print px-2 py-1.5" />
               </tr>
             </thead>
             <tbody>
@@ -849,23 +1160,17 @@ export function EntriesPage() {
                 {/* Vehicle */}
                 <div>
                   <label className={labelCls}>{t('vehicle')} *</label>
-                  <select
+                  <VehiclePicker
+                    vehicles={pickerVehicles}
                     value={form.vehicle_id}
-                    onChange={(e) => handleVehicleChange(e.target.value)}
-                    required
+                    onChange={handleVehicleChange}
+                    getName={ln}
                     disabled={!form.department_id}
-                    className={inputCls}
-                  >
-                    <option value="">{form.department_id ? '—' : t('selectDepartmentFirst')}</option>
-                    {formVehicles.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.code} — {ln(v)}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder={form.department_id ? 'Kod, nomi yoki ID bo\'yicha qidiring' : t('selectDepartmentFirst')}
+                  />
                 </div>
 
-                {/* Fuel type (read-only, auto-filled) */}
+                {/* Fuel type is constrained by the selected vehicle. */}
                 <div>
                   <label className={labelCls}>{t('fuelType')}</label>
                   {editingDisabledFuel ? (
@@ -873,6 +1178,18 @@ export function EntriesPage() {
                       <span className="text-foreground">{selectedFuelType ? ln(selectedFuelType) : '—'}</span>
                       <span className="text-xs text-orange-600">({t('disabled')})</span>
                     </div>
+                  ) : formAllowedFuelTypes.length > 1 ? (
+                    <select
+                      value={form.fuel_type_id}
+                      onChange={(e) => handleField('fuel_type_id', e.target.value)}
+                      required
+                      className={inputCls}
+                    >
+                      <option value="">—</option>
+                      {formAllowedFuelTypes.map((fuel) => (
+                        <option key={fuel.id} value={fuel.id}>{ln(fuel)}</option>
+                      ))}
+                    </select>
                   ) : (
                     <input
                       type="text"
@@ -943,12 +1260,12 @@ export function EntriesPage() {
                   />
                 </div>
 
-                {/* Closing balance (auto-calc, read-only display) */}
+                {/* Closing balance is calculated by the backend after save. */}
                 <div>
                   <label className={labelCls}>{t('closing')}</label>
                   <input
                     type="text"
-                    value={fmtNum(closingBalance)}
+                    value={form.closing_balance ? fmtNum(Number(form.closing_balance)) : 'Backend hisoblaydi'}
                     readOnly
                     className={`${inputCls} cursor-not-allowed font-semibold`}
                   />

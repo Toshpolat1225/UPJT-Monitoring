@@ -1,53 +1,58 @@
 #!/bin/sh
-set -e
+set -eu
+umask 077
 
-ENCRYPTED_BACKUP_FILE=$1
-
+ENCRYPTED_BACKUP_FILE="${1:-}"
 if [ -z "${ENCRYPTED_BACKUP_FILE}" ]; then
-  echo "Usage: ./restore.sh <path_to_encrypted_backup.enc>"
-  exit 1
+  echo "Usage: RESTORE_DB_HOST=... RESTORE_DB_NAME=... ./restore.sh <backup.enc>" >&2
+  exit 2
 fi
+: "${BACKUP_ENCRYPTION_KEY:?BACKUP_ENCRYPTION_KEY is required}"
+: "${RESTORE_DB_HOST:?RESTORE_DB_HOST is required}"
+: "${RESTORE_DB_PORT:=5432}"
+: "${RESTORE_DB_USER:?RESTORE_DB_USER is required}"
+: "${RESTORE_DB_PASSWORD:?RESTORE_DB_PASSWORD is required}"
+: "${RESTORE_DB_NAME:?RESTORE_DB_NAME is required}"
+: "${RESTORE_TARGET:=temporary}"
 
-if [ -z "${BACKUP_ENCRYPTION_KEY}" ]; then
-    echo "Error: BACKUP_ENCRYPTION_KEY environment variable is not set."
-    exit 1
-fi
-
-CHECKSUM_FILE="${ENCRYPTED_BACKUP_FILE%.enc}.sha256"
-DECRYPTED_BACKUP_FILE="/tmp/decrypted_backup.dump"
-
-export PGPASSWORD="${POSTGRES_PASSWORD}"
-
-echo "1. Decrypting backup file..."
-openssl enc -d -aes-256-cbc -pbkdf2 -in "${ENCRYPTED_BACKUP_FILE}" -out "${DECRYPTED_BACKUP_FILE}" -k "${BACKUP_ENCRYPTION_KEY}"
-
-if [ ! -f "${CHECKSUM_FILE}" ]; then
-    echo "Warning: Checksum file ${CHECKSUM_FILE} not found. Skipping integrity check."
+case "${RESTORE_DB_NAME}" in
+  ''|*[!A-Za-z0-9_]* ) echo "Invalid RESTORE_DB_NAME" >&2; exit 2 ;;
+esac
+if [ "${RESTORE_TARGET}" = "production" ]; then
+  [ "${ALLOW_PRODUCTION_RESTORE:-}" = "YES_I_UNDERSTAND" ] || { echo "Production restore requires ALLOW_PRODUCTION_RESTORE=YES_I_UNDERSTAND" >&2; exit 2; }
 else
-    echo "2. Verifying backup integrity with SHA256 checksum..."
-    sha256sum -c "${CHECKSUM_FILE}" --ignore-missing
+  [ "${RESTORE_DB_NAME}" != "${POSTGRES_DB:-}" ] || { echo "Refusing to restore into production database" >&2; exit 2; }
 fi
 
-echo "3. Terminating active database connections to '${POSTGRES_DB}'..."
-psql -h db -U "${POSTGRES_USER}" -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${POSTGRES_DB}' AND pid <> pg_backend_pid();" || true
+BASE_NAME=$(basename "${ENCRYPTED_BACKUP_FILE%.enc}")
+CHECKSUM_FILE="${ENCRYPTED_BACKUP_FILE%.enc}.sha256"
+HMAC_FILE="${ENCRYPTED_BACKUP_FILE%.enc}.hmac"
+TMP_DIR="$(mktemp -d /tmp/fuel-restore.XXXXXX)"
+DECRYPTED_BACKUP_FILE="${TMP_DIR}/${BASE_NAME}"
+cleanup() { rm -rf "${TMP_DIR}"; }
+trap cleanup EXIT HUP INT TERM
 
-echo "4. Re-creating target database..."
-psql -h db -U "${POSTGRES_USER}" -d postgres -c "DROP DATABASE IF EXISTS ${POSTGRES_DB} WITH (FORCE);"
-psql -h db -U "${POSTGRES_USER}" -d postgres -c "CREATE DATABASE ${POSTGRES_DB};"
+[ -s "${ENCRYPTED_BACKUP_FILE}" ] || { echo "Encrypted backup missing or empty" >&2; exit 1; }
+[ -s "${CHECKSUM_FILE}" ] || { echo "Checksum file missing" >&2; exit 1; }
+[ -s "${HMAC_FILE}" ] || { echo "HMAC file missing" >&2; exit 1; }
 
-echo "5. Restoring logical dump into the new database..."
-# pg_restore for a custom-format dump connects to an existing, empty database
-# and populates it. It does not operate on the PGDATA directory level.
-pg_restore -h db -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
-  --no-owner \
-  --no-privileges \
-  --single-transaction \
-  --exit-on-error \
-  "${DECRYPTED_BACKUP_FILE}" || {
-    echo "FATAL: pg_restore failed. The database is likely empty but clean due to single-transaction mode."
-    rm -f "${DECRYPTED_BACKUP_FILE}"
-    exit 1
-}
+EXPECTED_HMAC=$(tr -d '[:space:]' < "${HMAC_FILE}")
+ACTUAL_HMAC=$(openssl dgst -sha256 -hmac "${BACKUP_ENCRYPTION_KEY}" "${ENCRYPTED_BACKUP_FILE}" | awk '{print $NF}')
+[ "${EXPECTED_HMAC}" = "${ACTUAL_HMAC}" ] || { echo "Encrypted backup HMAC verification failed" >&2; exit 1; }
+echo "HMAC verification: PASS"
 
-rm -f "${DECRYPTED_BACKUP_FILE}"
-echo "Restore operation completed successfully!"
+openssl enc -d -aes-256-cbc -pbkdf2 -in "${ENCRYPTED_BACKUP_FILE}" -out "${DECRYPTED_BACKUP_FILE}" -pass env:BACKUP_ENCRYPTION_KEY
+(cd "${TMP_DIR}" && sha256sum -c "${CHECKSUM_FILE}")
+echo "Decrypted checksum verification: PASS"
+pg_restore --list "${DECRYPTED_BACKUP_FILE}" >/dev/null
+echo "Dump catalog validation: PASS"
+
+export PGPASSWORD="${RESTORE_DB_PASSWORD}"
+if [ "${RESTORE_TARGET}" = "production" ] || [ "${RESTORE_CREATE_DATABASE:-true}" = "true" ]; then
+  psql -h "${RESTORE_DB_HOST}" -p "${RESTORE_DB_PORT}" -U "${RESTORE_DB_USER}" -d postgres -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS \"${RESTORE_DB_NAME}\" WITH (FORCE);" \
+    -c "CREATE DATABASE \"${RESTORE_DB_NAME}\";"
+fi
+pg_restore -h "${RESTORE_DB_HOST}" -p "${RESTORE_DB_PORT}" -U "${RESTORE_DB_USER}" -d "${RESTORE_DB_NAME}" \
+  --no-owner --no-privileges --single-transaction --exit-on-error "${DECRYPTED_BACKUP_FILE}"
+echo "Restore target=${RESTORE_TARGET} database=${RESTORE_DB_NAME}: PASS"

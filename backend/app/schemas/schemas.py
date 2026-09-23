@@ -258,6 +258,11 @@ class DailyEntryCreate(BaseModel):
     closing_balance: Decimal = Decimal("0")
 
 class DailyEntryUpdate(BaseModel):
+    entry_date: Optional[date] = None
+    department_id: Optional[str] = None
+    section_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
+    fuel_type_id: Optional[str] = None
     opening_balance: Optional[Decimal] = None
     received_azs: Optional[Decimal] = None
     transfer_in: Optional[Decimal] = None

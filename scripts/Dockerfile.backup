@@ -7,6 +7,9 @@ RUN apk add --no-cache postgresql-client openssl busybox-suid
 COPY backup.sh /usr/local/bin/backup.sh
 RUN chmod +x /usr/local/bin/backup.sh
 
+COPY restore.sh /usr/local/bin/restore.sh
+RUN chmod +x /usr/local/bin/restore.sh
+
 # Copy the crontab file
 COPY crontab /etc/crontabs/root
 

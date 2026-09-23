@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import axios from 'axios';
-import apiClient from '../lib/client';
+import apiClient, { IDLE_TIMEOUT_MS, markSessionActivity } from '../lib/client';
 import type { AppRole } from '../types';
 
 interface LocalSession {
@@ -53,15 +53,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const clearAuthState = useCallback(() => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('lastActivityAt');
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setRoles([]);
+    setLoading(false);
+  }, []);
+
   const loadProfile = useCallback(async () => {
     const accessToken = localStorage.getItem('accessToken');
 
     if (!accessToken) {
-      setSession(null);
-      setUser(null);
-      setProfile(null);
-      setRoles([]);
-      setLoading(false);
+      clearAuthState();
       return;
     }
 
@@ -77,19 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         roles: Array.isArray(data.roles) ? data.roles : [],
       };
 
+      markSessionActivity();
       setSession({ access_token: accessToken, token_type: 'bearer' });
       setUser(normalizedProfile);
       setProfile(normalizedProfile);
       setRoles(normalizedProfile.roles ?? []);
     } catch (error: unknown) {
-      // Only a confirmed authentication failure invalidates local credentials.
-      // A transient network/5xx response must not turn into a forced logout.
       if (axios.isAxiosError(error) && error.response?.status === 401) {
-        localStorage.removeItem('accessToken');
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setRoles([]);
+        clearAuthState();
       } else {
         console.error('Failed to load local profile:', error);
         setSession({ access_token: accessToken, token_type: 'bearer' });
@@ -97,11 +98,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearAuthState]);
+
+  const signOut = useCallback(async () => {
+    clearAuthState();
+  }, [clearAuthState]);
 
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    const handleActivity = () => {
+      markSessionActivity();
+    };
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'mousemove', 'touchstart', 'scroll'];
+    for (const event of events) {
+      window.addEventListener(event, handleActivity, { passive: true });
+    }
+
+    const timer = window.setInterval(() => {
+      const lastActivityAt = Number(localStorage.getItem('lastActivityAt') ?? 0);
+      if (!lastActivityAt || Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) {
+        void signOut();
+      }
+    }, 30_000);
+
+    return () => {
+      for (const event of events) {
+        window.removeEventListener(event, handleActivity);
+      }
+      window.clearInterval(timer);
+    };
+  }, [session, signOut]);
 
   const value: AuthState = {
     user,
@@ -113,14 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAdmin: roles.includes('admin'),
     hasRole: (r) => roles.includes(r),
     hasAny: (rs) => rs.some((r) => roles.includes(r)),
-    signOut: async () => {
-      localStorage.removeItem('accessToken');
-      setSession(null);
-      setUser(null);
-      setProfile(null);
-      setRoles([]);
-      setLoading(false);
-    },
+    signOut,
     refresh: async () => {
       await loadProfile();
     },

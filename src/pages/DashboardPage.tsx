@@ -64,13 +64,15 @@ const dateStr = (year: number, month: number, day: number): string => {
   return `${year}-${m}-${d}`;
 };
 
-const yesterdayStr = (): string => {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+const currentMonthEndStr = (): string => {
+  const now = new Date();
+  return dateStr(now.getFullYear(), now.getMonth(), daysInMonth(now.getFullYear(), now.getMonth()));
 };
 
-
+const todayStr = (): string => {
+  const now = new Date();
+  return dateStr(now.getFullYear(), now.getMonth(), now.getDate());
+};
 
 // ============================================================
 // Component
@@ -107,7 +109,7 @@ export function DashboardPage() {
     const now = new Date();
     return dateStr(now.getFullYear(), now.getMonth(), 1);
   });
-  const [dailyDateTo, setDailyDateTo] = useState<string>(() => yesterdayStr());
+  const [dailyDateTo, setDailyDateTo] = useState<string>(() => currentMonthEndStr());
   const [block1Entries, setBlock1Entries] = useState<DailyEntry[]>([]);
   const [block1Limits, setBlock1Limits] = useState<MonthlyLimit[]>([]);
 
@@ -244,10 +246,9 @@ export function DashboardPage() {
     return year === now.getFullYear() && month === now.getMonth();
   }, [year, month]);
 
-  /** The "yesterday" cutoff for MTD aggregation. For the current month it's
-   *  yesterday; for past months it's the last day of that month. */
+  /** The inclusive cutoff for MTD aggregation. Current-month data includes today. */
   const mtdCutoff = useMemo(() => {
-    if (isCurrentMonth) return yesterdayStr();
+    if (isCurrentMonth) return todayStr();
     return dateStr(year, month, daysInMonth(year, month));
   }, [isCurrentMonth, year, month]);
 
@@ -493,7 +494,7 @@ export function DashboardPage() {
       }
       const arr: { day: string; limit: number; fact: number }[] = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const ds = d.toISOString().slice(0, 10);
+        const ds = dateStr(d.getFullYear(), d.getMonth(), d.getDate());
         arr.push({ day: ds.slice(8), limit: Math.round(dailyLimit), fact: Math.round(factByDay[ds] ?? 0) });
       }
       map[ft.id] = arr;
