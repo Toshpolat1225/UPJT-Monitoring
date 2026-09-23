@@ -20,6 +20,7 @@ export function AuthPage() {
     try {
       const { data } = await apiClient.post('/auth/login', { email, password });
       localStorage.setItem('accessToken', data.access_token);
+      localStorage.setItem('refreshToken', data.refresh_token);
       await refresh();
       toast.success(t('welcome'));
     } catch (error: unknown) {

@@ -55,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearAuthState = useCallback(() => {
     localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('lastActivityAt');
     setSession(null);
     setUser(null);
@@ -107,6 +108,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
+
+  // client.ts dagi refresh-token muvaffaqiyatsiz bo'lganda yoki
+  // refresh_token umuman topilmaganda shu event tashlanadi.
+  // Endi uni ushlab, holatni tozalab, login sahifasiga qaytaramiz.
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      clearAuthState();
+      if (window.location.pathname !== '/auth') {
+        window.location.href = '/auth';
+      }
+    };
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, [clearAuthState]);
 
   useEffect(() => {
     if (!session) {
