@@ -295,6 +295,29 @@ export function DashboardPage() {
     [enabledFuels],
   );
 
+  /**
+   * Bo'lim (section) bo'yicha yig'ib, sexning umumiy qiymatini beradi.
+   *
+   * "Sex / Yoqilg'i turi" jadvalidagi mantiq bilan bir xil: agar sexda
+   * bo'limlar bo'lsa, har bir bo'limning qiymatini yig'ib sexga chiqaradi;
+   * bo'lim bo'lmasa, sexning o'ziga to'g'ridan-to'g'ri kiritilgan
+   * qiymatni oladi. Bar chart, Fuel Summary, Daily Trend va Warnings —
+   * barchasi shu funksiya orqali hisoblashi kerak, aks holda bo'lim
+   * ichiga kiritilgan qiymatlar tashqarida qolib ketadi.
+   */
+  const rollupBySections = useCallback(
+    (
+      deptId: string,
+      fuelTypeId: string,
+      getter: (deptId: string, sectionId: string | null, fuelTypeId: string) => number,
+    ): number => {
+      const deptSections = sectionsByDepartment[deptId] ?? [];
+      if (deptSections.length === 0) return getter(deptId, null, fuelTypeId);
+      return deptSections.reduce((sum, section) => sum + getter(deptId, section.id, fuelTypeId), 0);
+    },
+    [sectionsByDepartment],
+  );
+
   // --------------------------------------------------------
   // Derived: limit lookup keyed by `${deptId}|${sectionId ?? ''}|${fuelTypeId}`
   // --------------------------------------------------------
@@ -443,13 +466,13 @@ export function DashboardPage() {
       map[ft.id] = realDepartments
         .filter((d) => isFuelEnabled(d.id, ft.id))
         .map((d) => {
-          const lim = getSelectedLimit(d.id, null, ft.id);
-          const fact = getMtd(d.id, null, ft.id);
+          const lim = rollupBySections(d.id, ft.id, getSelectedLimit);
+          const fact = rollupBySections(d.id, ft.id, getMtd);
           return { name: ln(d), limit: Math.round(lim), fact: Math.round(fact) };
         });
     }
     return map;
-  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled]);
+  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled, rollupBySections]);
 
   // --------------------------------------------------------
   // Derived: fuel type summary — per fuel independent data (own scale)
@@ -460,12 +483,12 @@ export function DashboardPage() {
       let fact = 0;
       for (const d of realDepartments) {
         if (!isFuelEnabled(d.id, ft.id)) continue;
-        lim += getSelectedLimit(d.id, null, ft.id);
-        fact += getMtd(d.id, null, ft.id);
+        lim += rollupBySections(d.id, ft.id, getSelectedLimit);
+        fact += rollupBySections(d.id, ft.id, getMtd);
       }
       return { fuel: ft, lim, fact, pct: safePct(fact, lim) };
     }).filter((fs) => realDepartments.some((d) => isFuelEnabled(d.id, fs.fuel.id)));
-  }, [orderedFuels, realDepartments, getSelectedLimit, getMtd, isFuelEnabled]);
+  }, [orderedFuels, realDepartments, getSelectedLimit, getMtd, isFuelEnabled, rollupBySections]);
 
   // --------------------------------------------------------
   // Derived: daily trend data per fuel type — limit + fact for each day
@@ -480,7 +503,7 @@ export function DashboardPage() {
       let totalMonthlyLimit = 0;
       for (const d of realDepartments) {
         if (!isFuelEnabled(d.id, ft.id)) continue;
-        totalMonthlyLimit += getLimit(d.id, null, ft.id);
+        totalMonthlyLimit += rollupBySections(d.id, ft.id, getLimit);
       }
       const dailyLimit = totalMonthlyLimit / dim;
       // Build day-by-day fact consumption for this fuel (only from enabled departments)
@@ -500,7 +523,7 @@ export function DashboardPage() {
       map[ft.id] = arr;
     }
     return map;
-  }, [orderedFuels, realDepartments, entries, getLimit, dim, mtdCutoff, dateFrom, dateTo, isFuelEnabled]);
+  }, [orderedFuels, realDepartments, entries, getLimit, dim, mtdCutoff, dateFrom, dateTo, isFuelEnabled, rollupBySections]);
 
   // --------------------------------------------------------
   // Derived: breakdown table rows — per fuel type per department/section
@@ -607,8 +630,8 @@ export function DashboardPage() {
       let fact = 0;
       for (const ft of orderedFuels) {
         if (!isFuelEnabled(d.id, ft.id)) continue;
-        lim += getSelectedLimit(d.id, null, ft.id);
-        fact += getMtd(d.id, null, ft.id);
+        lim += rollupBySections(d.id, ft.id, getSelectedLimit);
+        fact += rollupBySections(d.id, ft.id, getMtd);
       }
       const pct = safePct(fact, lim);
       if (pct >= 80) {
@@ -616,7 +639,7 @@ export function DashboardPage() {
       }
     }
     return list.sort((a, b) => b.pct - a.pct);
-  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled]);
+  }, [realDepartments, orderedFuels, getSelectedLimit, getMtd, ln, isFuelEnabled, rollupBySections]);
 
   // --------------------------------------------------------
   // Render helpers
