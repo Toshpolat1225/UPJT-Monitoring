@@ -19,7 +19,7 @@ def list_limits(
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Profile = Depends(require_role("admin", "gsm", "management")),
+    current_user: Profile = Depends(require_role("admin", "gsm", "management", "operator", "master")),
 ):
     query = db.query(MonthlyLimit)
 

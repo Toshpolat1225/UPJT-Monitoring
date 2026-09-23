@@ -41,11 +41,23 @@ interface FormState {
   consumption: string;
 }
 
+type SortKey = keyof DailyEntry | 'company' | 'vehicle_name' | 'department_name' | 'section_name' | 'fuel_name';
+
 // ============================================================
 // Helpers
 // ============================================================
 
 const todayStr = (): string => new Date().toISOString().slice(0, 10);
+
+const monthsInRange = (from: string, to: string): Array<{ year: number; month: number }> => {
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  const result: Array<{ year: number; month: number }> = [];
+  for (const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1)); cursor <= end; cursor.setUTCMonth(cursor.getUTCMonth() + 1)) {
+    result.push({ year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1 });
+  }
+  return result;
+};
 
 const num = (v: string): number => {
   const n = parseFloat(v);
@@ -59,7 +71,7 @@ const exportNumber = (n: number | null | undefined): number | string =>
   n == null || !Number.isFinite(n) ? '—' : n;
 
 const fmtPct = (n: number): string =>
-  Number.isFinite(n) ? `${Math.ceil(n)}%` : '0%';
+  Number.isFinite(n) ? `${n.toLocaleString('uz-UZ', { maximumFractionDigits: 2 })}%` : '—';
 
 const emptyForm = (): FormState => ({
   entry_date: todayStr(),
@@ -102,7 +114,7 @@ export function EntriesPage() {
   const [filterSection, setFilterSection] = useState<string>('');
   const [filterFuel, setFilterFuel] = useState<string>('');
   const [search, setSearch] = useState<string>('');
-  const [sortKey, setSortKey] = useState<keyof DailyEntry | 'company' | 'vehicle_name' | 'section_name' | 'fuel_name'>('entry_date');
+  const [sortKey, setSortKey] = useState<SortKey>('entry_date');
   const [sortAsc, setSortAsc] = useState(false);
 
   // Reference data
@@ -155,25 +167,20 @@ export function EntriesPage() {
   const loadEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const [entriesRes, limitsRes] = await Promise.all([
-        apiClient.get('/entries', {
-          params: {
-            date_from: filterDateFrom,
-            date_to: filterDateTo,
-            department_id: filterDept || undefined,
-            vehicle_id: filterVehicle || undefined,
-          },
-        }),
-        apiClient.get('/limits', {
-          params: {
-            year: parseInt(filterDateFrom.slice(0, 4)),
-            month: parseInt(filterDateFrom.slice(5, 7)),
-          },
-        }),
-      ]);
+      const entriesRes = await apiClient.get('/entries', {
+        params: {
+          date_from: filterDateFrom,
+          date_to: filterDateTo,
+          department_id: filterDept || undefined,
+          vehicle_id: filterVehicle || undefined,
+        },
+      });
+      const limitsResponses = await Promise.all(monthsInRange(filterDateFrom, filterDateTo).map((month) =>
+        apiClient.get('/limits', { params: { ...month, department_id: filterDept || undefined } }),
+      ));
 
       setEntries((entriesRes.data as EntryRow[]) ?? []);
-      setLimits((limitsRes.data as MonthlyLimit[]) ?? []);
+      setLimits(limitsResponses.flatMap((response) => (response.data as MonthlyLimit[]) ?? []));
     } catch (error: unknown) {
       toast.error(`${t('error')}: ${getErrorMessage(error, 'Failed to load entries')}`);
       setEntries([]);
@@ -370,9 +377,10 @@ export function EntriesPage() {
   // --------------------------------------------------------
   const displayedEntries = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
-    const value = (entry: EntryRow, key: typeof sortKey): string | number => {
+    const value = (entry: EntryRow, key: SortKey): string | number => {
       if (key === 'company') return entry.department?.company?.short_name ?? '';
       if (key === 'vehicle_name') return entry.vehicle?.name_uz ?? '';
+      if (key === 'department_name') return entry.department?.name_uz ?? '';
       if (key === 'section_name') return entry.section?.name_uz ?? '';
       if (key === 'fuel_name') return entry.fuel_type?.name_uz ?? '';
       return entry[key] ?? '';
@@ -393,20 +401,39 @@ export function EntriesPage() {
     transfer_in: total.transfer_in + (row.transfer_in ?? 0), transfer_out: total.transfer_out + (row.transfer_out ?? 0),
     consumption: total.consumption + (row.consumption ?? 0), closing_balance: total.closing_balance + (row.closing_balance ?? 0),
   }), { opening_balance: 0, received_azs: 0, transfer_in: 0, transfer_out: 0, consumption: 0, closing_balance: 0 }), [displayedEntries]);
-  const deviation = fuelTotals.grand.actual - fuelTotals.grand.limit;
-  const deviationPct = fuelTotals.grand.limit > 0 ? (deviation / fuelTotals.grand.limit) * 100 : null;
-  const toggleSort = (key: typeof sortKey) => { if (sortKey === key) setSortAsc((v) => !v); else { setSortKey(key); setSortAsc(true); } };
-
+  const fuelNumericTotals = useMemo(() => {
+    const totals = new Map<string, typeof numericTotals>();
+    for (const row of displayedEntries) {
+      const current = totals.get(row.fuel_type_id) ?? { opening_balance: 0, received_azs: 0, transfer_in: 0, transfer_out: 0, consumption: 0, closing_balance: 0 };
+      current.opening_balance += row.opening_balance ?? 0;
+      current.received_azs += row.received_azs ?? 0;
+      current.transfer_in += row.transfer_in ?? 0;
+      current.transfer_out += row.transfer_out ?? 0;
+      current.consumption += row.consumption ?? 0;
+      current.closing_balance += row.closing_balance ?? 0;
+      totals.set(row.fuel_type_id, current);
+    }
+    return totals;
+  }, [displayedEntries]);
   const fuelTotals = useMemo(
     () => computeFuelTotals(displayedEntries, fuelTypes, limits),
     [displayedEntries, fuelTypes, limits],
   );
+  const toggleSort = (key: SortKey) => { if (sortKey === key) setSortAsc((v) => !v); else { setSortKey(key); setSortAsc(true); } };
+
+  const summaryRows = useMemo(() => fuelTotals.perFuel.map((fuel) => ({
+    ...fuel,
+    factPercentage: fuel.limit > 0 ? (fuel.actual / fuel.limit) * 100 : null,
+    deviation: fuel.actual - fuel.limit,
+    deviationPercentage: fuel.limit > 0 ? ((fuel.actual - fuel.limit) / fuel.limit) * 100 : null,
+  })), [fuelTotals]);
 
   const entryToExportRow = (e: EntryRow): (string | number)[] => [
     e.entry_date,
-    e.vehicle ? ln(e.vehicle) : '—',
-    e.vehicle?.code ?? '—',
+    e.department?.company?.short_name ?? '—',
+    e.department ? ln(e.department) : '—',
     e.section ? ln(e.section) : '—',
+    e.vehicle ? `${e.vehicle.code} — ${ln(e.vehicle)}` : '—',
     e.fuel_type
       ? `${ln(e.fuel_type)}${e.fuel_type.unit ? ` ${formatUnit(e.fuel_type.unit, lang)}` : ''}`
       : '—',
@@ -419,7 +446,7 @@ export function EntriesPage() {
   ];
 
   // --------------------------------------------------------
-  // Excel export (filtered data + Jami block with SUMIF formulas)
+  // Excel export (filtered data + the same summary as the screen)
   // --------------------------------------------------------
   const handleExport = () => {
     if (loading || displayedEntries.length === 0) {
@@ -430,9 +457,10 @@ export function EntriesPage() {
     // Header row — matches visible table columns (excluding actions)
     const headers = [
       t('date'),
-      t('vehicle'),
-      t('code'),
+      'Kompaniya qisqa nomi',
+      t('department'),
       t('section'),
+      t('vehicle'),
       t('fuelType'),
       t('opening'),
       t('receivedAzs'),
@@ -447,14 +475,14 @@ export function EntriesPage() {
     // Build sheet manually with formulas
     const aoa: (string | number)[][] = [headers, ...dataRows];
 
-    // Summary is calculated from exactly the rows being exported. Using values
-    // rather than spreadsheet formulas keeps it consistent in every viewer.
+    // Summary is calculated from the same filtered and sorted rows as the table.
     aoa.push([]);
-    aoa.push([t('total'), t('fuelType'), t('consumption')]);
-    for (const ft of fuelTotals.perFuel) {
-      aoa.push([`${t('total')} ${ft.fuelName}`, ft.fuelName, ft.actual]);
+    aoa.push([t('fuelType'), t('total'), 'Limit', 'Fakt', 'Fakt %', 'Og\'ish %']);
+    for (const ft of summaryRows) {
+      const totals = fuelNumericTotals.get(ft.fuelTypeId);
+      aoa.push([ft.fuelName, totals?.consumption ?? 0, ft.limit, ft.actual, ft.factPercentage ?? '—', ft.deviationPercentage ?? '—']);
     }
-    aoa.push([t('grandTotal'), '', fuelTotals.grand.actual]);
+    aoa.push(['Jami', fuelTotals.grand.actual, fuelTotals.grand.limit, fuelTotals.grand.actual, fuelTotals.grand.limit > 0 ? (fuelTotals.grand.actual / fuelTotals.grand.limit) * 100 : '—', fuelTotals.grand.limit > 0 ? ((fuelTotals.grand.actual - fuelTotals.grand.limit) / fuelTotals.grand.limit) * 100 : '—']);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -498,8 +526,16 @@ export function EntriesPage() {
       const veh = vehicles.find((v) => v.id === filterVehicle);
       items.push({ label: t('vehicle'), value: veh ? `${veh.code} — ${ln(veh)}` : filterVehicle });
     }
+    if (filterSection) {
+      const section = sections.find((s) => s.id === filterSection);
+      items.push({ label: t('section'), value: section ? ln(section) : filterSection });
+    }
+    if (filterFuel) {
+      const fuel = fuelTypes.find((f) => f.id === filterFuel);
+      items.push({ label: t('fuelType'), value: fuel ? ln(fuel) : filterFuel });
+    }
     return items;
-  }, [filterDateFrom, filterDateTo, filterDept, filterVehicle, departments, vehicles, t, ln]);
+  }, [filterDateFrom, filterDateTo, filterDept, filterVehicle, filterSection, filterFuel, departments, vehicles, sections, fuelTypes, t, ln]);
 
   const handlePrint = () => {
     window.print();
@@ -615,26 +651,38 @@ export function EntriesPage() {
         <div><label className={labelCls}>{t('fuelType')}</label><select value={filterFuel} onChange={(e) => setFilterFuel(e.target.value)} className={inputCls}><option value="">{t('all')}</option>{fuelTypes.map((x) => <option key={x.id} value={x.id}>{ln(x)}</option>)}</select></div>
         <div><label className={labelCls}>Qidirish</label><input value={search} onChange={(e) => setSearch(e.target.value)} className={inputCls} placeholder="Texnika, kompaniya..." /></div>
       </div>
-      <div className="rounded-xl border border-border bg-card p-4 text-sm"><span className="font-semibold">{t('total')} limit: {fmtNum(fuelTotals.grand.limit)}</span><span className="ml-4">Fakt: {fmtNum(fuelTotals.grand.actual)}</span><span className="ml-4">Og‘ish: {fmtNum(deviation)}</span><span className="ml-4">Og‘ish %: {deviationPct == null ? '—' : fmtPct(deviationPct)}</span></div>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Yoqilg'i summary">
+        {summaryRows.map((fuel) => (
+          <article key={fuel.fuelTypeId} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">{fuel.fuelName}</h2>
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div><dt className="text-muted-foreground">Jami</dt><dd className="font-semibold text-foreground">{fmtNum(fuel.actual)}</dd></div>
+              <div><dt className="text-muted-foreground">Limit</dt><dd className="font-semibold text-foreground">{fmtNum(fuel.limit)}</dd></div>
+              <div><dt className="text-muted-foreground">Fakt %</dt><dd className="font-semibold text-foreground">{fuel.factPercentage == null ? '—' : fmtPct(fuel.factPercentage)}</dd></div>
+              <div><dt className="text-muted-foreground">Og'ish %</dt><dd className={`font-semibold ${fuel.deviation > 0 ? 'text-destructive' : 'text-foreground'}`}>{fuel.deviationPercentage == null ? '—' : fmtPct(fuel.deviationPercentage)}</dd></div>
+            </dl>
+          </article>
+        ))}
+      </section>
 
       {/* Table */}
       <div className="print-table-wrapper overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+          <table className="min-w-[1180px] w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th onClick={() => toggleSort('entry_date')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('date')}</th>
-                <th onClick={() => toggleSort('vehicle_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('vehicle')}</th>
-                <th onClick={() => toggleSort('company')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">Kompaniya</th>
-                <th onClick={() => toggleSort('department_id')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">Sex</th>
+                <th onClick={() => toggleSort('company')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">Kompaniya qisqa nomi</th>
+                <th onClick={() => toggleSort('department_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">Sex</th>
                 <th onClick={() => toggleSort('section_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('section')}</th>
+                <th onClick={() => toggleSort('vehicle_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('vehicle')}</th>
                 <th onClick={() => toggleSort('fuel_name')} className="cursor-pointer px-3 py-2.5 text-left font-semibold text-foreground">{t('fuelType')}</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('opening')}</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('receivedAzs')}</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('transferIn')}</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('transferOut')}</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('consumption')}</th>
-                <th className="px-3 py-2.5 text-right font-semibold text-foreground">{t('closing')}</th>
+                <th onClick={() => toggleSort('opening_balance')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('opening')}</th>
+                <th onClick={() => toggleSort('received_azs')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('receivedAzs')}</th>
+                <th onClick={() => toggleSort('transfer_in')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('transferIn')}</th>
+                <th onClick={() => toggleSort('transfer_out')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('transferOut')}</th>
+                <th onClick={() => toggleSort('consumption')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('consumption')}</th>
+                <th onClick={() => toggleSort('closing_balance')} className="cursor-pointer px-3 py-2.5 text-right font-semibold text-foreground">{t('closing')}</th>
                 <th className="no-print px-3 py-2.5 text-center font-semibold text-foreground">{t('actions')}</th>
               </tr>
             </thead>
@@ -660,10 +708,10 @@ export function EntriesPage() {
                 displayedEntries.map((e) => (
                   <tr key={e.id} className="border-b border-border transition hover:bg-muted/30">
                     <td className="px-3 py-2 text-foreground whitespace-nowrap">{e.entry_date}</td>
-                    <td className="px-3 py-2 text-foreground">{e.vehicle ? `${e.vehicle.code} — ${ln(e.vehicle)}` : '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{e.department?.company?.short_name ?? '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{e.department ? ln(e.department) : '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{e.section ? ln(e.section) : '—'}</td>
+                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{e.vehicle ? `${e.vehicle.code} — ${ln(e.vehicle)}` : '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{e.fuel_type ? `${ln(e.fuel_type)}` : '—'}{e.fuel_type?.unit ? <span className="ml-1 text-xs text-muted-foreground/70">{formatUnit(e.fuel_type.unit, lang)}</span> : null}</td>
                     <td className="px-3 py-2 text-right text-foreground">{fmtNum(e.opening_balance)}</td>
                     <td className="px-3 py-2 text-right text-foreground">{fmtNum(e.received_azs)}</td>
@@ -699,6 +747,15 @@ export function EntriesPage() {
             </tbody>
             {displayedEntries.length > 0 && (
               <tfoot className="border-t-2 border-border bg-muted/40">
+                {Array.from(fuelNumericTotals.entries()).map(([fuelId, totals]) => {
+                  const fuel = fuelTypes.find((item) => item.id === fuelId);
+                  return (
+                    <tr key={fuelId} className="text-sm">
+                      <td className="px-3 py-2" colSpan={6}>{t('total')} ({fuel?.name_uz ?? '—'})</td>
+                      <td className="px-3 py-2 text-right">{fmtNum(totals.opening_balance)}</td><td className="px-3 py-2 text-right">{fmtNum(totals.received_azs)}</td><td className="px-3 py-2 text-right">{fmtNum(totals.transfer_in)}</td><td className="px-3 py-2 text-right">{fmtNum(totals.transfer_out)}</td><td className="px-3 py-2 text-right">{fmtNum(totals.consumption)}</td><td className="px-3 py-2 text-right">{fmtNum(totals.closing_balance)}</td><td />
+                    </tr>
+                  );
+                })}
                 <tr className="font-semibold">
                   <td className="px-3 py-2.5" colSpan={6}>{t('total')}</td>
                   <td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.opening_balance)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.received_azs)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.transfer_in)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.transfer_out)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.consumption)}</td><td className="px-3 py-2.5 text-right">{fmtNum(numericTotals.closing_balance)}</td><td />

@@ -21,8 +21,8 @@ export interface FuelTotalsResult {
 
 /**
  * Compute per-fuel-type and grand totals from a set of (already filtered) entries.
- * Limit is the sum of monthly_limits matching the entries' year/month, divided by
- * days-in-month and multiplied by the number of distinct days in the entry set.
+ * Limits are prorated per month and per stored department/section scope, so
+ * entries from different fuel types or months are never mixed.
  * All missing/null values default to 0. Efficiency is 0 when limit is 0.
  */
 export function computeFuelTotals(
@@ -44,26 +44,6 @@ export function computeFuelTotals(
     };
   }
 
-  // Determine the year/month from the first entry (all entries share the same filter window)
-  const firstDate = entries[0].entry_date;
-  const year = parseInt(firstDate.slice(0, 4));
-  const month = parseInt(firstDate.slice(5, 7)); // 1-based
-
-  // Days in that month
-  const dim = new Date(year, month, 0).getDate();
-
-  // Distinct days in the filtered entry set
-  const distinctDays = new Set(entries.map((e) => e.entry_date)).size;
-  const dayCount = Math.min(distinctDays, dim);
-
-  // Build limit lookup: key = fuel_type_id -> monthly limit value
-  const limitMap: Record<string, number> = {};
-  for (const l of limits) {
-    if (l.year === year && l.month === month) {
-      limitMap[l.fuel_type_id] = (limitMap[l.fuel_type_id] ?? 0) + (Number(l.limit_value) || 0);
-    }
-  }
-
   // Sum actual (consumption) per fuel type
   const actualMap: Record<string, number> = {};
   for (const e of entries) {
@@ -71,9 +51,26 @@ export function computeFuelTotals(
     actualMap[ftId] = (actualMap[ftId] ?? 0) + (Number(e.consumption) || 0);
   }
 
+  const limitMap: Record<string, number> = {};
+  for (const limit of limits) {
+    const scopedEntries = entries.filter((entry) => {
+      const year = Number(entry.entry_date.slice(0, 4));
+      const month = Number(entry.entry_date.slice(5, 7));
+      return entry.fuel_type_id === limit.fuel_type_id &&
+        entry.department_id === limit.department_id &&
+        entry.section_id === limit.section_id &&
+        year === limit.year && month === limit.month;
+    });
+    if (scopedEntries.length === 0) continue;
+
+    const daysInMonth = new Date(limit.year, limit.month, 0).getDate();
+    const distinctDays = new Set(scopedEntries.map((entry) => entry.entry_date)).size;
+    limitMap[limit.fuel_type_id] = (limitMap[limit.fuel_type_id] ?? 0) +
+      ((Number(limit.limit_value) || 0) / daysInMonth) * Math.min(distinctDays, daysInMonth);
+  }
+
   const perFuel: FuelTotalRow[] = fuelTypes.map((ft) => {
-    const monthlyLimit = limitMap[ft.id] ?? 0;
-    const limit = (monthlyLimit / dim) * dayCount;
+    const limit = limitMap[ft.id] ?? 0;
     const actual = actualMap[ft.id] ?? 0;
     const saved = limit - actual;
     const efficiency = limit > 0 ? (saved / limit) * 100 : 0;
