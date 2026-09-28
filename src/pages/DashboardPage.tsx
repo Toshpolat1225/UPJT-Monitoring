@@ -167,7 +167,7 @@ export function DashboardPage() {
             month: month + 1,
           },
         }),
-        apiClient.get('/entries', {
+        apiClient.get('/entries/', {
           params: {
             date_from: dateFrom,
             date_to: dateTo,
@@ -197,7 +197,7 @@ export function DashboardPage() {
         apiClient.get('/limits', {
           params: { year: fromY, month: fromM },
         }),
-        apiClient.get('/entries', {
+        apiClient.get('/entries/', {
           params: {
             date_from: dailyDateFrom,
             date_to: dailyDateTo,
@@ -223,7 +223,7 @@ export function DashboardPage() {
         apiClient.get('/limits', {
           params: { year: fromY, month: fromM },
         }),
-        apiClient.get('/entries', {
+        apiClient.get('/entries/', {
           params: {
             date_from: periodDateFrom,
             date_to: periodDateTo,

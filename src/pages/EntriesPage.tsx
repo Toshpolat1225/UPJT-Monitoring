@@ -343,7 +343,7 @@ export function EntriesPage() {
   const loadEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const entriesRes = await apiClient.get('/entries', {
+      const entriesRes = await apiClient.get('/entries/', {
         params: {
           date_from: filterDateFrom,
           date_to: filterDateTo,
@@ -524,7 +524,7 @@ export function EntriesPage() {
       if (isEdit) {
         await apiClient.put(`/entries/${form.id}`, payload);
       } else {
-        await apiClient.post('/entries', { ...payload, created_by: user.id });
+        await apiClient.post('/entries/', { ...payload, created_by: user.id });
       }
 
       toast.success(t('saved'));
