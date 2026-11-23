@@ -12,6 +12,7 @@ import {
   Moon,
   Fuel,
   Menu,
+  Truck,
   X,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'master-data', labelKey: 'masterData', icon: <Database className="h-5 w-5" />, roles: ['admin', 'operator'] },
   { key: 'users', labelKey: 'users', icon: <Users className="h-5 w-5" />, roles: ['admin'] },
   { key: 'audit', labelKey: 'audit', icon: <ScrollText className="h-5 w-5" />, roles: ['admin', 'gsm', 'operator'] },
+  { key: 'fleet', labelKey: 'fleetMonitoring', icon: <Truck className="h-5 w-5" />, roles: ['admin', 'gsm', 'operator', 'master', 'management'] },
   { key: 'docs', labelKey: 'docs', icon: <BookOpen className="h-5 w-5" />, roles: ['admin', 'gsm', 'operator', 'master', 'management'] },
 ];
 

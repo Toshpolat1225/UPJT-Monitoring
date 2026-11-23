@@ -23,8 +23,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: sttb_backend
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/sttb_monitoring
+      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/sttb_monitoring"
       SECRET_KEY: your-secret-key-change-in-production
     ports:
       - "8000:8000"

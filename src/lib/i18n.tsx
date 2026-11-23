@@ -11,6 +11,7 @@ const dict = {
   users: "Foydalanuvchilar",
   permissions: "Ruxsatlar",
   audit: "Audit jurnali",
+  fleetMonitoring: "GPS monitoringi",
   signIn: "Kirish",
   signOut: "Chiqish",
   email: "Email",

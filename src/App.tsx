@@ -9,6 +9,7 @@ import { MasterDataPage } from './pages/MasterDataPage';
 import { UsersPage } from './pages/UsersPage';
 import { AuditPage } from './pages/AuditPage';
 import { DocsPage } from './pages/DocsPage';
+import { FleetMonitoringPage } from './pages/FleetMonitoringPage';
 import type { AppRole } from './types';
 
 export type ViewKey =
@@ -18,6 +19,7 @@ export type ViewKey =
   | 'master-data'
   | 'users'
   | 'audit'
+  | 'fleet'
   | 'docs';
 
 function AppContent() {
@@ -52,6 +54,8 @@ function AppContent() {
         return hasAny(['admin']) ? <UsersPage /> : <DashboardPage />;
       case 'audit':
         return hasAny(['admin', 'gsm', 'operator']) ? <AuditPage /> : <DashboardPage />;
+      case 'fleet':
+        return hasAny(['admin', 'gsm', 'operator', 'master', 'management']) ? <FleetMonitoringPage /> : <DashboardPage />;
       case 'docs':
         return <DocsPage />;
       default:

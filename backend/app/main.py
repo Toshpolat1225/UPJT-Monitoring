@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.models.enums import AppRole
 from app.models.user import Role
-from app.routers import audit, auth, dashboard, entries, fuel_matrix, limits, master_data, permissions, users
+from app.routers import audit, auth, dashboard, entries, fuel_matrix, limits, master_data, permissions, users, wialon
 
 
 def ensure_default_roles() -> None:
@@ -41,6 +41,7 @@ app.include_router(master_data.router)
 app.include_router(fuel_matrix.router)
 app.include_router(permissions.router)
 app.include_router(audit.router)
+app.include_router(wialon.router)
 
 
 @app.on_event("startup")
